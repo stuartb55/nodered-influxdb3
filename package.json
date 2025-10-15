@@ -13,11 +13,15 @@
     "time-series",
     "database"
   ],
-  "author": "",
+  "author": "Stuart B",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/node-red-contrib-influxdb3.git"
+    "url": "https://github.com/stuartb55/nodered-influxdb3.git"
+  },
+  "homepage": "https://github.com/stuartb55/nodered-influxdb3#readme",
+  "bugs": {
+    "url": "https://github.com/stuartb55/nodered-influxdb3/issues"
   },
   "node-red": {
     "nodes": {

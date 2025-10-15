@@ -1,0 +1,13 @@
+# Don't include these in the npm package
+.git/
+.github/
+node_modules/
+.vscode/
+.idea/
+*.log
+.DS_Store
+*.swp
+*.swo
+*~
+package-lock.json
+
