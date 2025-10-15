@@ -1,0 +1,204 @@
+<!--
+  InfluxDB v3 Configuration Node
+-->
+<script type="text/javascript">
+    RED.nodes.registerType('influxdb3-config', {
+        category: 'config',
+        defaults: {
+            name: { value: '' },
+            host: { value: '', required: true },
+            database: { value: '', required: true }
+        },
+        credentials: {
+            token: { type: 'password' }
+        },
+        label: function() {
+            return this.name || this.host || 'InfluxDB v3';
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="influxdb3-config">
+    <div class="form-row">
+        <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-config-input-name" placeholder="Connection name">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-host"><i class="fa fa-server"></i> Host</label>
+        <input type="text" id="node-config-input-host" placeholder="https://us-east-1-1.aws.cloud2.influxdata.com">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-token"><i class="fa fa-key"></i> Token</label>
+        <input type="password" id="node-config-input-token">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-database"><i class="fa fa-database"></i> Database</label>
+        <input type="text" id="node-config-input-database" placeholder="my-database">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="influxdb3-config">
+    <p>Configuration node for InfluxDB v3 connection.</p>
+    <h3>Details</h3>
+    <p>This configuration node stores the connection details for an InfluxDB v3 instance.</p>
+    <dl class="message-properties">
+        <dt>Name <span class="property-type">string</span></dt>
+        <dd>A friendly name for this connection</dd>
+        <dt>Host <span class="property-type">string</span></dt>
+        <dd>The InfluxDB v3 host URL (e.g., https://us-east-1-1.aws.cloud2.influxdata.com)</dd>
+        <dt>Token <span class="property-type">string</span></dt>
+        <dd>The authentication token for accessing InfluxDB v3</dd>
+        <dt>Database <span class="property-type">string</span></dt>
+        <dd>The default database (bucket) name to write to</dd>
+    </dl>
+</script>
+
+<!--
+  InfluxDB v3 Write Node
+-->
+<script type="text/javascript">
+    RED.nodes.registerType('influxdb3-write', {
+        category: 'storage',
+        color: '#9ea8db',
+        defaults: {
+            influxdb: { type: 'influxdb3-config', required: true },
+            name: { value: '' },
+            measurement: { value: '' },
+            database: { value: '' }
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: 'db.png',
+        label: function() {
+            return this.name || 'influxdb3 write';
+        },
+        labelStyle: function() {
+            return this.name ? 'node_label_italic' : '';
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="influxdb3-write">
+    <div class="form-row">
+        <label for="node-input-influxdb"><i class="fa fa-server"></i> Connection</label>
+        <input type="text" id="node-input-influxdb">
+    </div>
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-measurement"><i class="fa fa-chart-line"></i> Measurement</label>
+        <input type="text" id="node-input-measurement" placeholder="Leave empty to use msg.measurement">
+    </div>
+    <div class="form-row">
+        <label for="node-input-database"><i class="fa fa-database"></i> Database</label>
+        <input type="text" id="node-input-database" placeholder="Override default database (optional)">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="influxdb3-write">
+    <p>Writes data to InfluxDB v3.</p>
+    
+    <h3>Inputs</h3>
+    <dl class="message-properties">
+        <dt>payload <span class="property-type">string | object</span></dt>
+        <dd>The data to write. Can be either:
+            <ul>
+                <li>A string in line protocol format</li>
+                <li>An object with <code>fields</code> (required) and optionally <code>tags</code> and <code>timestamp</code></li>
+            </ul>
+        </dd>
+        <dt class="optional">measurement <span class="property-type">string</span></dt>
+        <dd>Override the measurement name configured in the node</dd>
+        <dt class="optional">database <span class="property-type">string</span></dt>
+        <dd>Override the database configured in the node or connection</dd>
+        <dt class="optional">timestamp <span class="property-type">Date | number</span></dt>
+        <dd>Timestamp for the data point (if not in payload)</dd>
+    </dl>
+
+    <h3>Outputs</h3>
+    <dl class="message-properties">
+        <dt>payload <span class="property-type">object</span></dt>
+        <dd>The original payload is passed through</dd>
+    </dl>
+
+    <h3>Details</h3>
+    <p>This node writes data to InfluxDB v3. The data can be provided in two formats:</p>
+    
+    <h4>Line Protocol Format</h4>
+    <p>Send a string in line protocol format:</p>
+    <pre>msg.payload = "temperature,location=room1 value=21.5";</pre>
+    
+    <h4>Object Format</h4>
+    <p>Send an object with fields and optionally tags:</p>
+    <pre>{
+  "fields": {
+    "temperature": 21.5,
+    "humidity": 65
+  },
+  "tags": {
+    "location": "room1",
+    "sensor": "dht22"
+  },
+  "timestamp": Date.now()
+}</pre>
+
+    <h4>Simplified Object Format</h4>
+    <p>Send an object where all properties (except 'tags' and 'timestamp') are treated as fields:</p>
+    <pre>{
+  "temperature": 21.5,
+  "humidity": 65,
+  "tags": {
+    "location": "room1"
+  }
+}</pre>
+
+    <h3>Configuration</h3>
+    <dl class="message-properties">
+        <dt>Connection</dt>
+        <dd>The InfluxDB v3 connection configuration</dd>
+        <dt>Measurement</dt>
+        <dd>The measurement name to use. Can be overridden by <code>msg.measurement</code></dd>
+        <dt>Database</dt>
+        <dd>Optional database override. If not set, uses the database from the connection config</dd>
+    </dl>
+
+    <h3>Examples</h3>
+    <h4>Example 1: Simple temperature reading</h4>
+    <pre>msg.measurement = "temperature";
+msg.payload = {
+  "fields": {
+    "value": 21.5
+  },
+  "tags": {
+    "location": "living_room"
+  }
+};
+return msg;</pre>
+
+    <h4>Example 2: Multiple sensor values</h4>
+    <pre>msg.measurement = "environment";
+msg.payload = {
+  "temperature": 21.5,
+  "humidity": 65,
+  "pressure": 1013.25,
+  "tags": {
+    "room": "bedroom",
+    "floor": "2"
+  }
+};
+return msg;</pre>
+
+    <h4>Example 3: Line protocol string</h4>
+    <pre>msg.payload = "weather,location=garden temperature=18.5,humidity=75";
+return msg;</pre>
+
+    <h3>References</h3>
+    <ul>
+        <li><a href="https://github.com/InfluxCommunity/influxdb3-js">InfluxDB v3 JavaScript Client</a></li>
+        <li><a href="https://docs.influxdata.com/influxdb/v3/">InfluxDB v3 Documentation</a></li>
+        <li><a href="https://docs.influxdata.com/influxdb/v3/reference/syntax/line-protocol/">Line Protocol Reference</a></li>
+    </ul>
+</script>
+

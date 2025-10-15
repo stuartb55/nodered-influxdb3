@@ -1,0 +1,134 @@
+[
+    {
+        "id": "mqtt-flow",
+        "type": "tab",
+        "label": "MQTT to InfluxDB v3",
+        "disabled": false,
+        "info": "Example flow showing how to capture MQTT data and write to InfluxDB v3"
+    },
+    {
+        "id": "mqtt-in",
+        "type": "mqtt in",
+        "z": "mqtt-flow",
+        "name": "MQTT Sensor Data",
+        "topic": "sensors/+/data",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt-broker",
+        "nl": false,
+        "rap": false,
+        "inputs": 0,
+        "x": 140,
+        "y": 100,
+        "wires": [
+            [
+                "parse-mqtt"
+            ]
+        ]
+    },
+    {
+        "id": "parse-mqtt",
+        "type": "function",
+        "z": "mqtt-flow",
+        "name": "Parse MQTT Data",
+        "func": "// Extract sensor ID from topic (sensors/SENSOR_ID/data)\nconst topicParts = msg.topic.split('/');\nconst sensorId = topicParts[1];\n\n// Prepare data for InfluxDB\nmsg.measurement = 'sensor_readings';\nmsg.payload = {\n    fields: {\n        temperature: msg.payload.temperature,\n        humidity: msg.payload.humidity,\n        battery: msg.payload.battery\n    },\n    tags: {\n        sensor_id: sensorId,\n        location: msg.payload.location || 'unknown'\n    }\n};\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 100,
+        "wires": [
+            [
+                "influx-write",
+                "debug-mqtt"
+            ]
+        ]
+    },
+    {
+        "id": "influx-write",
+        "type": "influxdb3-write",
+        "z": "mqtt-flow",
+        "influxdb": "influxdb3-config",
+        "name": "Store in InfluxDB",
+        "measurement": "",
+        "database": "",
+        "x": 590,
+        "y": 100,
+        "wires": [
+            [
+                "debug-success"
+            ]
+        ]
+    },
+    {
+        "id": "debug-mqtt",
+        "type": "debug",
+        "z": "mqtt-flow",
+        "name": "MQTT Data",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 570,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "debug-success",
+        "type": "debug",
+        "z": "mqtt-flow",
+        "name": "Write Result",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 790,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "mqtt-broker",
+        "type": "mqtt-broker",
+        "name": "Local MQTT Broker",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "influxdb3-config",
+        "type": "influxdb3-config",
+        "name": "My InfluxDB v3",
+        "host": "https://us-east-1-1.aws.cloud2.influxdata.com",
+        "database": "my-database"
+    }
+]
+

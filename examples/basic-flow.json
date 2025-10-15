@@ -1,0 +1,170 @@
+[
+    {
+        "id": "example-flow",
+        "type": "tab",
+        "label": "InfluxDB v3 Example",
+        "disabled": false,
+        "info": "Example flow showing how to write data to InfluxDB v3"
+    },
+    {
+        "id": "inject-temp",
+        "type": "inject",
+        "z": "example-flow",
+        "name": "Generate Temperature Data",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "5",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 180,
+        "y": 100,
+        "wires": [
+            [
+                "format-temp"
+            ]
+        ]
+    },
+    {
+        "id": "format-temp",
+        "type": "function",
+        "z": "example-flow",
+        "name": "Format Temperature",
+        "func": "// Generate random temperature between 18 and 28 degrees\nconst temp = 18 + Math.random() * 10;\nconst humidity = 40 + Math.random() * 30;\n\nmsg.measurement = 'environment';\nmsg.payload = {\n    temperature: parseFloat(temp.toFixed(2)),\n    humidity: parseFloat(humidity.toFixed(2)),\n    tags: {\n        location: 'office',\n        sensor: 'dht22_01'\n    }\n};\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 100,
+        "wires": [
+            [
+                "write-influx",
+                "debug-payload"
+            ]
+        ]
+    },
+    {
+        "id": "write-influx",
+        "type": "influxdb3-write",
+        "z": "example-flow",
+        "influxdb": "influxdb3-config",
+        "name": "Write to InfluxDB v3",
+        "measurement": "",
+        "database": "",
+        "x": 660,
+        "y": 100,
+        "wires": [
+            [
+                "debug-result"
+            ]
+        ]
+    },
+    {
+        "id": "debug-payload",
+        "type": "debug",
+        "z": "example-flow",
+        "name": "Debug Payload",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 660,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "debug-result",
+        "type": "debug",
+        "z": "example-flow",
+        "name": "Debug Result",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 870,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "inject-line-protocol",
+        "type": "inject",
+        "z": "example-flow",
+        "name": "Line Protocol Example",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "weather,location=garden temperature=18.5,humidity=75,pressure=1013.25",
+        "payloadType": "str",
+        "x": 180,
+        "y": 200,
+        "wires": [
+            [
+                "write-influx-lp"
+            ]
+        ]
+    },
+    {
+        "id": "write-influx-lp",
+        "type": "influxdb3-write",
+        "z": "example-flow",
+        "influxdb": "influxdb3-config",
+        "name": "Write Line Protocol",
+        "measurement": "",
+        "database": "",
+        "x": 450,
+        "y": 200,
+        "wires": [
+            [
+                "debug-lp"
+            ]
+        ]
+    },
+    {
+        "id": "debug-lp",
+        "type": "debug",
+        "z": "example-flow",
+        "name": "Debug LP",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 660,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "influxdb3-config",
+        "type": "influxdb3-config",
+        "name": "My InfluxDB v3",
+        "host": "https://us-east-1-1.aws.cloud2.influxdata.com",
+        "database": "my-database"
+    }
+]
+
