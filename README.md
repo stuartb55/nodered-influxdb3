@@ -323,10 +323,6 @@ The node will display error status and log details to the Node-RED debug panel:
 
 MIT
 
-## Author
-
-Your Name
-
 ## Links
 
 - [InfluxDB v3 JavaScript Client](https://github.com/InfluxCommunity/influxdb3-js)
