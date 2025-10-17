@@ -6,6 +6,66 @@ module.exports = function(RED) {
     const { InfluxDBClient, Point } = require('@influxdata/influxdb3-client');
 
     /**
+     * Normalize host URL to ensure it has trailing slash
+     */
+    function normalizeHost(host) {
+        if (!host || typeof host !== 'string') {
+            return host;
+        }
+        return host.endsWith('/') ? host : host + '/';
+    }
+
+    /**
+     * Process a field value and add it to a Point
+     */
+    function addFieldToPoint(point, key, value, integerFields) {
+        if (value === null || value === undefined) {
+            return false;
+        }
+
+        // Handle string with 'i' suffix for integers (e.g., "42i")
+        if (typeof value === 'string' && /^-?\d+i$/.test(value)) {
+            const intValue = parseInt(value.slice(0, -1), 10);
+            // Validate parsed value
+            if (!isNaN(intValue) && isFinite(intValue)) {
+                point.setIntegerField(key, intValue);
+                return true;
+            }
+        } else if (typeof value === 'number') {
+            // Validate number
+            if (!isFinite(value)) {
+                RED.log.warn(`Skipping field '${key}': value is not finite (${value})`);
+                return false;
+            }
+            
+            // Default to float for all numbers (safe default)
+            // Use integer only if explicitly marked in 'integers' array
+            if (integerFields.has(key)) {
+                const intValue = Math.floor(value);
+                if (intValue !== value) {
+                    RED.log.warn(`Field '${key}': truncating ${value} to ${intValue} for integer field`);
+                }
+                point.setIntegerField(key, intValue);
+            } else {
+                point.setFloatField(key, value);
+            }
+            return true;
+        } else if (typeof value === 'boolean') {
+            point.setBooleanField(key, value);
+            return true;
+        } else if (typeof value === 'string') {
+            point.setStringField(key, value);
+            return true;
+        } else {
+            // Complex types (arrays, objects) are not supported
+            RED.log.warn(`Skipping field '${key}': unsupported type ${typeof value}`);
+            return false;
+        }
+        
+        return false;
+    }
+
+    /**
      * Configuration node to hold InfluxDB v3 connection details
      */
     function InfluxDB3ConfigNode(config) {
@@ -24,13 +84,31 @@ module.exports = function(RED) {
         // Get or create a client instance
         this.getClient = function() {
             if (!this.client) {
+                // Validate configuration
+                if (!this.host) {
+                    throw new Error('InfluxDB host is not configured');
+                }
+                if (!this.token) {
+                    throw new Error('InfluxDB token is not configured');
+                }
+                if (!this.database) {
+                    throw new Error('InfluxDB database is not configured');
+                }
+                
                 try {
+                    const normalizedHost = normalizeHost(this.host);
+                    
+                    RED.log.info(`InfluxDB v3: Connecting to ${normalizedHost} with database ${this.database}`);
+                    
                     this.client = new InfluxDBClient({
-                        host: this.host,
+                        host: normalizedHost,
                         token: this.token,
                         database: this.database
                     });
+                    
+                    RED.log.info(`InfluxDB v3: Client created successfully`);
                 } catch (error) {
+                    RED.log.error(`InfluxDB v3: Failed to create client - ${error.message}`);
                     throw new Error(`Failed to create InfluxDB client: ${error.message}`);
                 }
             }
@@ -41,10 +119,11 @@ module.exports = function(RED) {
         this.on('close', function() {
             if (this.client) {
                 try {
+                    RED.log.info('InfluxDB v3: Closing client connection');
                     this.client.close();
                     this.client = null;
                 } catch (error) {
-                    // Ignore errors on close
+                    RED.log.warn(`InfluxDB v3: Error closing client - ${error.message}`);
                 }
             }
         });
@@ -67,11 +146,29 @@ module.exports = function(RED) {
         this.database = config.database;
         
         const node = this;
+        let statusTimeout = null;
         
         if (!this.influxdb) {
             this.error('InfluxDB v3 config not set');
             this.status({ fill: 'red', shape: 'dot', text: 'no config' });
             return;
+        }
+        
+        // Helper to set status with auto-clear
+        function setStatus(status, clearAfterMs = 0) {
+            if (statusTimeout) {
+                clearTimeout(statusTimeout);
+                statusTimeout = null;
+            }
+            
+            node.status(status);
+            
+            if (clearAfterMs > 0) {
+                statusTimeout = setTimeout(() => {
+                    node.status({});
+                    statusTimeout = null;
+                }, clearAfterMs);
+            }
         }
         
         // Process incoming messages
@@ -98,8 +195,11 @@ module.exports = function(RED) {
                 
                 // Check if msg.payload is already in line protocol format
                 if (typeof msg.payload === 'string') {
-                    lineProtocol = msg.payload;
-                } else if (msg.payload && typeof msg.payload === 'object') {
+                    lineProtocol = msg.payload.trim();
+                    if (!lineProtocol) {
+                        throw new Error('Line protocol string is empty');
+                    }
+                } else if (msg.payload && typeof msg.payload === 'object' && !Array.isArray(msg.payload)) {
                     // Build line protocol from payload object
                     const measurement = msg.measurement || node.measurement;
                     
@@ -110,7 +210,7 @@ module.exports = function(RED) {
                     const point = new Point(measurement);
                     
                     // Add tags
-                    if (msg.payload.tags && typeof msg.payload.tags === 'object') {
+                    if (msg.payload.tags && typeof msg.payload.tags === 'object' && !Array.isArray(msg.payload.tags)) {
                         for (const [key, value] of Object.entries(msg.payload.tags)) {
                             if (value !== null && value !== undefined) {
                                 point.setTag(key, String(value));
@@ -118,61 +218,59 @@ module.exports = function(RED) {
                         }
                     }
                     
+                    // Get list of fields that should be treated as integers
+                    const integerFields = new Set(msg.payload.integers || []);
+                    let fieldCount = 0;
+                    
                     // Add fields
-                    if (msg.payload.fields && typeof msg.payload.fields === 'object') {
+                    if (msg.payload.fields && typeof msg.payload.fields === 'object' && !Array.isArray(msg.payload.fields)) {
+                        // Explicit fields object
                         for (const [key, value] of Object.entries(msg.payload.fields)) {
-                            if (value !== null && value !== undefined) {
-                                if (typeof value === 'number') {
-                                    if (Number.isInteger(value)) {
-                                        point.setIntegerField(key, value);
-                                    } else {
-                                        point.setFloatField(key, value);
-                                    }
-                                } else if (typeof value === 'boolean') {
-                                    point.setBooleanField(key, value);
-                                } else {
-                                    point.setStringField(key, String(value));
-                                }
+                            if (addFieldToPoint(point, key, value, integerFields)) {
+                                fieldCount++;
                             }
                         }
                     } else {
-                        // If no 'fields' property, treat all non-tag properties as fields
+                        // Simplified format: treat all non-reserved properties as fields
+                        const reservedKeys = new Set(['tags', 'timestamp', 'integers', 'fields']);
                         for (const [key, value] of Object.entries(msg.payload)) {
-                            if (key !== 'tags' && key !== 'timestamp' && value !== null && value !== undefined) {
-                                if (typeof value === 'number') {
-                                    if (Number.isInteger(value)) {
-                                        point.setIntegerField(key, value);
-                                    } else {
-                                        point.setFloatField(key, value);
-                                    }
-                                } else if (typeof value === 'boolean') {
-                                    point.setBooleanField(key, value);
-                                } else if (typeof value !== 'object') {
-                                    point.setStringField(key, String(value));
+                            if (!reservedKeys.has(key)) {
+                                if (addFieldToPoint(point, key, value, integerFields)) {
+                                    fieldCount++;
                                 }
                             }
                         }
                     }
                     
+                    if (fieldCount === 0) {
+                        throw new Error('No valid fields to write - at least one field is required');
+                    }
+                    
                     // Add timestamp if provided
                     if (msg.payload.timestamp) {
-                        if (msg.payload.timestamp instanceof Date) {
-                            point.setTimestamp(msg.payload.timestamp);
-                        } else if (typeof msg.payload.timestamp === 'number') {
-                            point.setTimestamp(new Date(msg.payload.timestamp));
+                        const ts = msg.payload.timestamp;
+                        if (ts instanceof Date && !isNaN(ts.getTime())) {
+                            point.setTimestamp(ts);
+                        } else if (typeof ts === 'number' && isFinite(ts) && ts > 0) {
+                            point.setTimestamp(new Date(ts));
+                        } else {
+                            node.warn(`Invalid timestamp in payload: ${ts}`);
                         }
                     } else if (msg.timestamp) {
-                        if (msg.timestamp instanceof Date) {
-                            point.setTimestamp(msg.timestamp);
-                        } else if (typeof msg.timestamp === 'number') {
-                            point.setTimestamp(new Date(msg.timestamp));
+                        const ts = msg.timestamp;
+                        if (ts instanceof Date && !isNaN(ts.getTime())) {
+                            point.setTimestamp(ts);
+                        } else if (typeof ts === 'number' && isFinite(ts) && ts > 0) {
+                            point.setTimestamp(new Date(ts));
+                        } else {
+                            node.warn(`Invalid timestamp in msg: ${ts}`);
                         }
                     }
                     
                     lineProtocol = point.toLineProtocol();
                     
-                    if (!lineProtocol) {
-                        throw new Error('No fields to write - at least one field is required');
+                    if (!lineProtocol || lineProtocol.trim() === '') {
+                        throw new Error('Generated line protocol is empty');
                     }
                 } else {
                     throw new Error('Invalid payload format. Expected string (line protocol) or object with fields');
@@ -181,27 +279,25 @@ module.exports = function(RED) {
                 // Write to InfluxDB
                 await client.write(lineProtocol, targetDatabase);
                 
-                node.status({ fill: 'green', shape: 'dot', text: 'written' });
-                
-                // Clear status after 3 seconds
-                setTimeout(() => {
-                    node.status({});
-                }, 3000);
+                setStatus({ fill: 'green', shape: 'dot', text: 'written' }, 3000);
                 
                 send(msg);
                 done();
                 
             } catch (error) {
-                node.status({ fill: 'red', shape: 'dot', text: 'error' });
+                setStatus({ fill: 'red', shape: 'dot', text: 'error' });
                 done(error);
             }
         });
         
         node.on('close', function() {
+            if (statusTimeout) {
+                clearTimeout(statusTimeout);
+                statusTimeout = null;
+            }
             node.status({});
         });
     }
     
     RED.nodes.registerType('influxdb3-write', InfluxDB3WriteNode);
 };
-

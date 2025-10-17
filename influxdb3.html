@@ -154,6 +154,30 @@
   }
 }</pre>
 
+    <h3>Data Types</h3>
+    <p><strong>Important:</strong> By default, <strong>all numbers are written as floats</strong> to avoid schema conflicts. 
+    JavaScript doesn't distinguish between <code>1.0</code> and <code>1</code>, which can cause issues when InfluxDB expects a float.</p>
+    
+    <h4>Writing Integer Fields</h4>
+    <p>To explicitly write integers, use one of these methods:</p>
+    
+    <p><strong>Method 1: Using the <code>integers</code> array</strong></p>
+    <pre>msg.payload = {
+  fields: {
+    temperature: 21.5,   // float
+    count: 42            // will be float by default
+  },
+  integers: ['count']    // mark count as integer
+};</pre>
+    
+    <p><strong>Method 2: Using the <code>i</code> suffix</strong></p>
+    <pre>msg.payload = {
+  fields: {
+    temperature: 21.5,   // float
+    count: "42i"         // integer (string with 'i' suffix)
+  }
+};</pre>
+
     <h3>Configuration</h3>
     <dl class="message-properties">
         <dt>Connection</dt>

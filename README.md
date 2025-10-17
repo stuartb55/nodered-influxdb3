@@ -118,13 +118,54 @@ return msg;
 
 ### Data Types
 
-When using object format, the node automatically handles data types:
-- **Numbers**: 
-  - Integers are written as integer fields
-  - Floats are written as float fields
+**Important:** By default, **all numbers are written as floats** to avoid schema conflicts in InfluxDB. This is because JavaScript doesn't distinguish between `1.0` and `1` (both equal `1`), which can cause issues when InfluxDB expects a float but receives an integer.
+
+When using object format, the node handles data types as follows:
+- **Numbers**: Written as **float fields** by default
+- **Integers**: Must be explicitly marked (see below)
 - **Booleans**: Written as boolean fields
 - **Strings**: Written as string fields
 - **Tags**: Always converted to strings
+
+#### Writing Integer Fields
+
+To write integers explicitly, use one of these methods:
+
+**Method 1: Using the `integers` array**
+```javascript
+msg.payload = {
+    fields: {
+        temperature: 21.5,   // float
+        count: 42,           // will be float by default
+        total: 100           // will be float by default
+    },
+    integers: ['count', 'total']  // mark these as integers
+};
+```
+
+**Method 2: Using the `i` suffix**
+```javascript
+msg.payload = {
+    fields: {
+        temperature: 21.5,   // float
+        count: "42i",        // integer (note the string with 'i' suffix)
+        total: "100i"        // integer
+    }
+};
+```
+
+**Example with both floats and integers:**
+```javascript
+msg.measurement = "sensor_data";
+msg.payload = {
+    temperature: 21.5,      // float
+    humidity: 65.0,         // float (even though it looks like an integer)
+    event_count: "50i",     // integer
+    tags: {
+        location: "room1"
+    }
+};
+```
 
 ### Message Properties
 
@@ -133,6 +174,7 @@ The following message properties can be used to override node configuration:
 - `msg.measurement` - Override the measurement name
 - `msg.database` - Override the database name
 - `msg.timestamp` - Set the timestamp for the data point (Date object or milliseconds)
+- `msg.payload.integers` - Array of field names to write as integers (e.g., `['count', 'total']`)
 
 ## Examples
 
