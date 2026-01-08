@@ -33,7 +33,7 @@
     }
   },
   "dependencies": {
-    "@influxdata/influxdb3-client": "^1.4.0"
+    "@influxdata/influxdb3-client": "^2.0.0"
   },
   "peerDependencies": {
     "node-red": ">=3.0.0"
