@@ -1,10 +1,10 @@
 {
   "name": "node-red-contrib-influxdb3",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Node-RED nodes for InfluxDB v3 integration",
   "main": "influxdb3.js",
   "scripts": {
-    "test": "echo \"No tests specified\""
+    "test": "jest"
   },
   "keywords": [
     "node-red",
@@ -20,7 +20,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/stuartb55/nodered-influxdb3.git"
+    "url": "git+https://github.com/stuartb55/nodered-influxdb3.git"
   },
   "homepage": "https://github.com/stuartb55/nodered-influxdb3#readme",
   "bugs": {
@@ -35,8 +35,10 @@
   "dependencies": {
     "@influxdata/influxdb3-client": "^2.0.0"
   },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
   "peerDependencies": {
     "node-red": ">=3.0.0"
   }
 }
-

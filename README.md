@@ -52,6 +52,8 @@ A configuration node that stores connection details for your InfluxDB v3 instanc
 - **Host**: Your InfluxDB v3 host URL (e.g., `https://us-east-1-1.aws.cloud2.influxdata.com`)
 - **Token**: Your InfluxDB v3 authentication token
 - **Database**: The default database (bucket) name
+- **Verify TLS**: Toggle TLS certificate verification (unchecked sets `NODE_TLS_REJECT_UNAUTHORIZED=0`)
+- **CA Cert Path**: Optional filesystem path for a custom root CA (`NODE_EXTRA_CA_CERTS`)
 
 ### InfluxDB v3 Write Node
 
@@ -343,6 +345,13 @@ Simply reference them in the Node-RED UI using `${INFLUX_HOST}` syntax (if using
 - Verify your host URL is correct and includes `https://`
 - Check that your token has write permissions for the database
 - Ensure the database name exists in your InfluxDB v3 instance
+
+### TLS / Custom Certificates
+
+If you are connecting to a local InfluxDB v3 instance with a custom certificate:
+
+- Set **CA Cert Path** in the config node to the PEM file containing your root CA. This sets `NODE_EXTRA_CA_CERTS` for the Node-RED process.
+- As a last resort, disable **Verify TLS** to set `NODE_TLS_REJECT_UNAUTHORIZED=0` (this disables TLS verification globally for the process).
 
 ### Data Not Appearing
 

@@ -7,7 +7,9 @@
         defaults: {
             name: { value: '' },
             host: { value: '', required: true },
-            database: { value: '', required: true }
+            database: { value: '', required: true },
+            tlsRejectUnauthorized: { value: true },
+            caCertPath: { value: '' }
         },
         credentials: {
             token: { type: 'password' }
@@ -35,6 +37,15 @@
         <label for="node-config-input-database"><i class="fa fa-database"></i> Database</label>
         <input type="text" id="node-config-input-database" placeholder="my-database">
     </div>
+    <div class="form-row">
+        <label for="node-config-input-tlsRejectUnauthorized"><i class="fa fa-lock"></i> Verify TLS</label>
+        <input type="checkbox" id="node-config-input-tlsRejectUnauthorized" style="width:auto;">
+        <span>Reject unauthorized certificates</span>
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-caCertPath"><i class="fa fa-certificate"></i> CA Cert Path</label>
+        <input type="text" id="node-config-input-caCertPath" placeholder="C:\\path\\to\\root-ca.pem">
+    </div>
 </script>
 
 <script type="text/html" data-help-name="influxdb3-config">
@@ -50,6 +61,10 @@
         <dd>The authentication token for accessing InfluxDB v3</dd>
         <dt>Database <span class="property-type">string</span></dt>
         <dd>The default database (bucket) name to write to</dd>
+        <dt>Verify TLS <span class="property-type">boolean</span></dt>
+        <dd>When unchecked, sets <code>NODE_TLS_REJECT_UNAUTHORIZED=0</code> for the Node-RED process</dd>
+        <dt>CA Cert Path <span class="property-type">string</span></dt>
+        <dd>Optional filesystem path used to set <code>NODE_EXTRA_CA_CERTS</code> for custom root CAs</dd>
     </dl>
 </script>
 

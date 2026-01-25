@@ -74,6 +74,8 @@ module.exports = function(RED) {
         this.host = config.host;
         this.database = config.database;
         this.name = config.name;
+        this.tlsRejectUnauthorized = config.tlsRejectUnauthorized !== false;
+        this.caCertPath = config.caCertPath;
         
         // Store token as a credential
         this.token = this.credentials.token;
@@ -97,6 +99,16 @@ module.exports = function(RED) {
                 
                 try {
                     const normalizedHost = normalizeHost(this.host);
+
+                    if (!this.tlsRejectUnauthorized) {
+                        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+                        RED.log.warn('InfluxDB v3: TLS certificate verification is disabled for this process.');
+                    }
+
+                    if (this.caCertPath) {
+                        process.env.NODE_EXTRA_CA_CERTS = this.caCertPath;
+                        RED.log.info(`InfluxDB v3: Using extra CA certificates from ${this.caCertPath}`);
+                    }
                     
                     RED.log.info(`InfluxDB v3: Connecting to ${normalizedHost} with database ${this.database}`);
                     
