@@ -370,7 +370,18 @@ module.exports = function(RED) {
                     }
                     lineProtocol = result.lineProtocol;
                 } else {
-                    throw new Error('Invalid payload format. Expected string (line protocol) or object with fields');
+                    const actualType = typeof msg.payload;
+                    const detail = msg.payload === null
+                        ? 'null'
+                        : msg.payload === undefined
+                            ? 'undefined'
+                            : Array.isArray(msg.payload)
+                                ? `Array (length ${msg.payload.length}): ${safeStringify(msg.payload)}`
+                                : `${actualType}${msg.payload && msg.payload.constructor ? ` [${msg.payload.constructor.name}]` : ''}: ${safeStringify(msg.payload)}`;
+                    throw new Error(
+                        `Invalid payload format. Expected string (line protocol) or object with fields. ` +
+                        `Received: ${detail}`
+                    );
                 }
 
                 // Write to InfluxDB
