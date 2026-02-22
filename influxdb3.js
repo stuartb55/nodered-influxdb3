@@ -46,6 +46,9 @@ module.exports = function(RED) {
 
         // Store token as a credential (populated by Node-RED runtime)
         /** @type {string} */
+        if (!this.credentials) {
+            RED.log.warn('InfluxDB v3 config: credentials object is undefined');
+        }
         this.token = this.credentials ? this.credentials.token : undefined;
 
         // Client instance (will be created on demand)
@@ -180,7 +183,7 @@ module.exports = function(RED) {
                 node.warn(
                     `Skipping field '${key}': unsupported type 'object' (${typeName})${context}. ` +
                     `Actual value: ${safeStringify(value)}. ` +
-                    `msg.payload.fields['${key}'] must be a number, string, or boolean.`
+                    `The value for field '${key}' must be a number, string, or boolean.`
                 );
                 return false;
             }
