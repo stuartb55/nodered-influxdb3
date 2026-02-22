@@ -141,14 +141,52 @@ module.exports = function(RED) {
          * Safely serialize a value for diagnostic logging.
          * Handles circular references and large objects.
          * @param {*} value
+         * @param {number} [maxLength=200] - Maximum length before truncation
          * @returns {string}
          */
-        function safeStringify(value) {
+        function safeStringify(value, maxLength) {
+            maxLength = maxLength || 200;
             try {
-                return JSON.stringify(value);
+                const str = JSON.stringify(value);
+                if (str && str.length > maxLength) {
+                    return str.substring(0, maxLength) + '...(truncated)';
+                }
+                return str;
             } catch (e) {
                 return `[unserializable: ${e.message}]`;
             }
+        }
+
+        /**
+         * Validate that a string looks like InfluxDB line protocol.
+         * Returns null if valid, or an error message string if invalid.
+         * @param {string} lp - Trimmed line protocol string
+         * @returns {string|null}
+         */
+        function validateLineProtocol(lp) {
+            // Detect JSON-like strings (both valid JSON and JS object notation)
+            if (/^\{[\s\S]*}$/.test(lp) || /^\[[\s\S]*]$/.test(lp)) {
+                const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
+                return (
+                    'The payload appears to be a JSON/object string, not line protocol. ' +
+                    'If you are sending JSON, ensure msg.payload is a parsed object (not a string). ' +
+                    'Use a JSON parse node before this node to convert the string to an object. ' +
+                    `Received string: ${preview}`
+                );
+            }
+
+            // Line protocol must have at least: measurement field=value
+            // i.e. at least one space and one '=' in the field set
+            if (!lp.includes(' ') || !lp.includes('=')) {
+                const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
+                return (
+                    'The payload string does not appear to be valid line protocol. ' +
+                    'Expected format: measurement[,tag=val] field=val[,field=val] [timestamp]. ' +
+                    `Received: ${preview}`
+                );
+            }
+
+            return null;
         }
 
         /**
@@ -363,6 +401,12 @@ module.exports = function(RED) {
                     if (!lineProtocol) {
                         throw new Error('Line protocol string is empty');
                     }
+
+                    // Validate line protocol format
+                    const validationError = validateLineProtocol(lineProtocol);
+                    if (validationError) {
+                        throw new Error(validationError);
+                    }
                 } else if (msg.payload && typeof msg.payload === 'object' && !Array.isArray(msg.payload)) {
                     const result = buildLineProtocol(msg);
                     if (result.error) {
@@ -370,7 +414,18 @@ module.exports = function(RED) {
                     }
                     lineProtocol = result.lineProtocol;
                 } else {
-                    throw new Error('Invalid payload format. Expected string (line protocol) or object with fields');
+                    const actualType = typeof msg.payload;
+                    const detail = msg.payload === null
+                        ? 'null'
+                        : msg.payload === undefined
+                            ? 'undefined'
+                            : Array.isArray(msg.payload)
+                                ? `Array (length ${msg.payload.length}): ${safeStringify(msg.payload)}`
+                                : `${actualType}${msg.payload && msg.payload.constructor ? ` [${msg.payload.constructor.name}]` : ''}: ${safeStringify(msg.payload)}`;
+                    throw new Error(
+                        `Invalid payload format. Expected string (line protocol) or object with fields. ` +
+                        `Received: ${detail}`
+                    );
                 }
 
                 // Write to InfluxDB
@@ -382,7 +437,10 @@ module.exports = function(RED) {
                 done();
 
             } catch (error) {
-                setStatus({ fill: 'red', shape: 'dot', text: 'error' });
+                const shortMsg = error.message
+                    ? (error.message.length > 80 ? error.message.substring(0, 80) + '...' : error.message)
+                    : 'unknown error';
+                setStatus({ fill: 'red', shape: 'dot', text: shortMsg });
                 done(error);
             }
         });
