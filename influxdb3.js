@@ -195,7 +195,13 @@ module.exports = function(RED) {
                     return false;
                 }
                 if (integerFields && integerFields.has(key)) {
-                    point.setField(key, Math.trunc(value), 'integer');
+                    if (!Number.isInteger(value)) {
+                        node.warn(
+                            `Field '${key}' is marked as integer but value is ${value}${context}. ` +
+                            `Value will be truncated to ${Math.floor(value)} using Math.floor.`
+                        );
+                    }
+                    point.setField(key, Math.floor(value), 'integer');
                 } else {
                     point.setField(key, value);
                 }
