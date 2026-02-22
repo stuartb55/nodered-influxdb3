@@ -4,6 +4,14 @@
  */
 
 module.exports = function(RED) {
+    // @influxdata/influxdb3-client Point API:
+    //   Point.setIntegerField(name, value)
+    //   Point.setFloatField(name, value)
+    //   Point.setStringField(name, value)
+    //   Point.setBooleanField(name, value)
+    //   Point.setTag(name, value)
+    //   Point.setTimestamp(date)
+    //   Point.toLineProtocol()
     const { InfluxDBClient, Point } = require('@influxdata/influxdb3-client');
 
     /**
@@ -144,6 +152,12 @@ module.exports = function(RED) {
          * Process a field value and add it to a Point.
          * Returns true if the field was added, false if it was skipped.
          *
+         * Uses the type-specific Point methods:
+         * - point.setFloatField(name, value) for numbers (default)
+         * - point.setIntegerField(name, value) for integers
+         * - point.setStringField(name, value) for strings
+         * - point.setBooleanField(name, value) for booleans
+         *
          * @param {Point} point - The InfluxDB Point to add the field to
          * @param {string} key - The field name
          * @param {*} value - The field value
@@ -174,15 +188,15 @@ module.exports = function(RED) {
             if (typeof value === 'string') {
                 // Check for integer suffix e.g. "42i"
                 if (/^-?\d+i$/.test(value)) {
-                    point.setField(key, parseInt(value.slice(0, -1), 10), 'integer');
+                    point.setIntegerField(key, parseInt(value.slice(0, -1), 10));
                     return true;
                 }
-                point.setField(key, value);
+                point.setStringField(key, value);
                 return true;
             }
 
             if (typeof value === 'boolean') {
-                point.setField(key, value);
+                point.setBooleanField(key, value);
                 return true;
             }
 
@@ -201,9 +215,9 @@ module.exports = function(RED) {
                             `Value will be truncated to ${Math.floor(value)} using Math.floor.`
                         );
                     }
-                    point.setField(key, Math.floor(value), 'integer');
+                    point.setIntegerField(key, Math.floor(value));
                 } else {
-                    point.setField(key, value);
+                    point.setFloatField(key, value);
                 }
                 return true;
             }
@@ -335,9 +349,7 @@ module.exports = function(RED) {
                 const targetDatabase = msg.database || node.database || node.influxdb.database;
 
                 if (!targetDatabase) {
-                    setStatus({ fill: 'red', shape: 'dot', text: 'error' });
-                    done(new Error('Database not specified'));
-                    return;
+                    throw new Error('Database not specified');
                 }
 
                 let lineProtocol;
@@ -346,22 +358,16 @@ module.exports = function(RED) {
                 if (typeof msg.payload === 'string') {
                     lineProtocol = msg.payload.trim();
                     if (!lineProtocol) {
-                        setStatus({ fill: 'red', shape: 'dot', text: 'error' });
-                        done(new Error('Line protocol string is empty'));
-                        return;
+                        throw new Error('Line protocol string is empty');
                     }
                 } else if (msg.payload && typeof msg.payload === 'object' && !Array.isArray(msg.payload)) {
                     const result = buildLineProtocol(msg);
                     if (result.error) {
-                        setStatus({ fill: 'red', shape: 'dot', text: 'error' });
-                        done(new Error(result.error));
-                        return;
+                        throw new Error(result.error);
                     }
                     lineProtocol = result.lineProtocol;
                 } else {
-                    setStatus({ fill: 'red', shape: 'dot', text: 'error' });
-                    done(new Error('Invalid payload format. Expected string (line protocol) or object with fields'));
-                    return;
+                    throw new Error('Invalid payload format. Expected string (line protocol) or object with fields');
                 }
 
                 // Write to InfluxDB
