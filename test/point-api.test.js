@@ -52,5 +52,87 @@ describe('@influxdata/influxdb3-client v2.x Point API', () => {
         expect(typeof point.setStringField).toBe('function');
         expect(typeof point.setBooleanField).toBe('function');
     });
-});
 
+    // Regression: verify the type-specific methods used by addFieldToPoint
+    // produce the expected line protocol output
+    describe('type-specific method output (used by addFieldToPoint)', () => {
+        test('setFloatField writes float value', () => {
+            const point = new Point('test');
+            point.setFloatField('temp', 23.5);
+            const lp = point.toLineProtocol();
+            expect(lp).toContain('temp=23.5');
+            expect(lp).not.toContain('temp=23.5i');
+        });
+
+        test('setIntegerField writes integer value with i suffix', () => {
+            const point = new Point('test');
+            point.setIntegerField('count', 42);
+            const lp = point.toLineProtocol();
+            expect(lp).toContain('count=42i');
+        });
+
+        test('setIntegerField with Math.floor of negative float', () => {
+            const point = new Point('test');
+            point.setIntegerField('val', Math.floor(-2.7));
+            const lp = point.toLineProtocol();
+            expect(lp).toContain('val=-3i');
+        });
+
+        test('setStringField writes quoted string value', () => {
+            const point = new Point('test');
+            point.setStringField('status', 'ok');
+            const lp = point.toLineProtocol();
+            expect(lp).toContain('status="ok"');
+        });
+
+        test('setStringField with integer suffix string "42i" writes as string', () => {
+            // This verifies that if someone calls setStringField with "42i",
+            // it's treated as a string, not an integer
+            const point = new Point('test');
+            point.setStringField('code', '42i');
+            const lp = point.toLineProtocol();
+            expect(lp).toContain('code="42i"');
+        });
+
+        test('setBooleanField writes boolean value', () => {
+            const point = new Point('test');
+            point.setBooleanField('active', true);
+            const lp = point.toLineProtocol();
+            // Library may serialize as T/t/true/TRUE — just check it's there
+            expect(lp).toMatch(/active=(T|t|true|TRUE)/);
+        });
+
+        test('setBooleanField false', () => {
+            const point = new Point('test');
+            point.setBooleanField('active', false);
+            const lp = point.toLineProtocol();
+            expect(lp).toMatch(/active=(F|f|false|FALSE)/);
+        });
+
+        test('setTag writes tag in measurement line', () => {
+            const point = new Point('test');
+            point.setTag('host', 'server01');
+            point.setFloatField('value', 1);
+            const lp = point.toLineProtocol();
+            expect(lp).toContain('test,host=server01');
+        });
+
+        test('multiple fields and tags combined', () => {
+            const point = new Point('weather');
+            point.setTag('location', 'office');
+            point.setTag('device', 'sensor1');
+            point.setFloatField('temperature', 23.5);
+            point.setIntegerField('humidity', 71);
+            point.setStringField('status', 'ok');
+            point.setBooleanField('online', true);
+            const lp = point.toLineProtocol();
+            expect(lp).toContain('weather,');
+            expect(lp).toContain('location=office');
+            expect(lp).toContain('device=sensor1');
+            expect(lp).toContain('temperature=23.5');
+            expect(lp).toContain('humidity=71i');
+            expect(lp).toContain('status="ok"');
+            expect(lp).toMatch(/online=(T|t|true|TRUE)/);
+        });
+    });
+});

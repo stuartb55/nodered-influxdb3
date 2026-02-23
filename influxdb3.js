@@ -3,6 +3,58 @@
  * @module node-red-contrib-influxdb3
  */
 
+/**
+ * Validate that a string looks like InfluxDB line protocol.
+ * Returns null if valid, or an error message string if invalid.
+ * @param {string} lp - Trimmed line protocol string
+ * @returns {string|null}
+ */
+function validateLineProtocol(lp) {
+    // Detect [object Object] from accidental .toString() coercion
+    if (lp === '[object Object]' || /^\[object \w+]$/.test(lp)) {
+        return (
+            'The payload appears to be the result of calling .toString() on an object. ' +
+            'Ensure msg.payload is set to the actual object, not its string representation. ' +
+            `Received: ${lp}`
+        );
+    }
+
+    // Detect JS object notation with unquoted keys, e.g. {fields:{used:12.0,path:root}}
+    if (/^\{[a-zA-Z_][\w]*\s*:/.test(lp)) {
+        const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
+        return (
+            'The payload appears to be a JavaScript object converted to string, not line protocol. ' +
+            'This typically happens when an object is passed through a node that calls .toString() ' +
+            'instead of JSON.stringify(). Ensure msg.payload is a parsed object (not a string). ' +
+            `Received string: ${preview}`
+        );
+    }
+
+    // Detect JSON-like strings (both valid JSON and other bracket-wrapped formats)
+    if (/^\{[\s\S]*}$/.test(lp) || /^\[[\s\S]*]$/.test(lp)) {
+        const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
+        return (
+            'The payload appears to be a JSON/object string, not line protocol. ' +
+            'If you are sending JSON, ensure msg.payload is a parsed object (not a string). ' +
+            'Use a JSON parse node before this node to convert the string to an object. ' +
+            `Received string: ${preview}`
+        );
+    }
+
+    // Line protocol must have at least: measurement field=value
+    // i.e. at least one space and one '=' in the field set
+    if (!lp.includes(' ') || !lp.includes('=')) {
+        const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
+        return (
+            'The payload string does not appear to be valid line protocol. ' +
+            'Expected format: measurement[,tag=val] field=val[,field=val] [timestamp]. ' +
+            `Received: ${preview}`
+        );
+    }
+
+    return null;
+}
+
 module.exports = function(RED) {
     // @influxdata/influxdb3-client Point API:
     //   Point.setIntegerField(name, value)
@@ -155,38 +207,6 @@ module.exports = function(RED) {
             } catch (e) {
                 return `[unserializable: ${e.message}]`;
             }
-        }
-
-        /**
-         * Validate that a string looks like InfluxDB line protocol.
-         * Returns null if valid, or an error message string if invalid.
-         * @param {string} lp - Trimmed line protocol string
-         * @returns {string|null}
-         */
-        function validateLineProtocol(lp) {
-            // Detect JSON-like strings (both valid JSON and JS object notation)
-            if (/^\{[\s\S]*}$/.test(lp) || /^\[[\s\S]*]$/.test(lp)) {
-                const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
-                return (
-                    'The payload appears to be a JSON/object string, not line protocol. ' +
-                    'If you are sending JSON, ensure msg.payload is a parsed object (not a string). ' +
-                    'Use a JSON parse node before this node to convert the string to an object. ' +
-                    `Received string: ${preview}`
-                );
-            }
-
-            // Line protocol must have at least: measurement field=value
-            // i.e. at least one space and one '=' in the field set
-            if (!lp.includes(' ') || !lp.includes('=')) {
-                const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
-                return (
-                    'The payload string does not appear to be valid line protocol. ' +
-                    'Expected format: measurement[,tag=val] field=val[,field=val] [timestamp]. ' +
-                    `Received: ${preview}`
-                );
-            }
-
-            return null;
         }
 
         /**
@@ -456,3 +476,7 @@ module.exports = function(RED) {
 
     RED.nodes.registerType('influxdb3-write', InfluxDB3WriteNode);
 };
+
+// Expose internals for unit testing only
+module.exports._test = { validateLineProtocol };
+
