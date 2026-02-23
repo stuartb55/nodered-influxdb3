@@ -230,11 +230,18 @@ describe('Line protocol string validation', () => {
     // ── Edge cases and regression tests ──
 
     describe('edge cases', () => {
-        test('measurement name starting with { passes lightweight validation (InfluxDB will reject)', () => {
-            // Our validator only checks structure, not measurement name validity.
-            // {measurement} field=1 has a space and =, so it passes.
-            // InfluxDB itself will return an error for invalid measurement names.
+        test('measurement name starting with { passes if it has LP structure', () => {
+            // {measurement} field=1 has a space and =, so it passes as valid LP.
+            // InfluxDB itself will reject invalid measurement names.
             const input = '{measurement} field=1';
+            const result = validateLineProtocol(input);
+            expect(result).toBeNull();
+        });
+
+        test('{name:test} value=1 passes because it has LP structure (space + =)', () => {
+            // Even though it starts with JS object notation,
+            // the presence of space + = means it could be valid LP.
+            const input = '{name:test} value=1';
             const result = validateLineProtocol(input);
             expect(result).toBeNull();
         });

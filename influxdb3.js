@@ -11,6 +11,7 @@
  */
 function validateLineProtocol(lp) {
     // Detect [object Object] from accidental .toString() coercion
+    // These can never be valid line protocol, so check first
     if (lp === '[object Object]' || /^\[object \w+]$/.test(lp)) {
         return (
             'The payload appears to be the result of calling .toString() on an object. ' +
@@ -18,6 +19,16 @@ function validateLineProtocol(lp) {
             `Received: ${lp}`
         );
     }
+
+    // Line protocol must have at least: measurement field=value
+    // i.e. at least one space and one '=' in the field set.
+    // If the string has both, accept it as structurally valid LP.
+    if (lp.includes(' ') && lp.includes('=')) {
+        return null;
+    }
+
+    // From here, the string is NOT valid line protocol structure.
+    // Provide the most specific error message we can.
 
     // Detect JS object notation with unquoted keys, e.g. {fields:{used:12.0,path:root}}
     if (/^\{[a-zA-Z_][\w]*\s*:/.test(lp)) {
@@ -41,18 +52,13 @@ function validateLineProtocol(lp) {
         );
     }
 
-    // Line protocol must have at least: measurement field=value
-    // i.e. at least one space and one '=' in the field set
-    if (!lp.includes(' ') || !lp.includes('=')) {
-        const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
-        return (
-            'The payload string does not appear to be valid line protocol. ' +
-            'Expected format: measurement[,tag=val] field=val[,field=val] [timestamp]. ' +
-            `Received: ${preview}`
-        );
-    }
-
-    return null;
+    // Generic: doesn't look like line protocol
+    const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
+    return (
+        'The payload string does not appear to be valid line protocol. ' +
+        'Expected format: measurement[,tag=val] field=val[,field=val] [timestamp]. ' +
+        `Received: ${preview}`
+    );
 }
 
 module.exports = function(RED) {
