@@ -230,20 +230,21 @@ describe('Line protocol string validation', () => {
     // ── Edge cases and regression tests ──
 
     describe('edge cases', () => {
-        test('measurement name starting with { passes if it has LP structure', () => {
-            // {measurement} field=1 has a space and =, so it passes as valid LP.
-            // InfluxDB itself will reject invalid measurement names.
+        test('measurement name starting with { is rejected to avoid JS-object-like confusion', () => {
+            // InfluxDB measurement names cannot start with {, so this is
+            // safely rejected to catch accidental object-to-string coercion.
             const input = '{measurement} field=1';
             const result = validateLineProtocol(input);
-            expect(result).toBeNull();
+            expect(result).not.toBeNull();
         });
 
-        test('{name:test} value=1 passes because it has LP structure (space + =)', () => {
-            // Even though it starts with JS object notation,
-            // the presence of space + = means it could be valid LP.
+        test('{name:test} value=1 is rejected because it resembles JS object notation', () => {
+            // Even though it has a space and "=", the leading "{name:" strongly
+            // suggests JavaScript object notation and should be treated as invalid.
             const input = '{name:test} value=1';
             const result = validateLineProtocol(input);
-            expect(result).toBeNull();
+            expect(result).not.toBeNull();
+            expect(result).toContain('JavaScript object');
         });
 
         test('does not false-positive on measurement with equals in tag', () => {

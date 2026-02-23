@@ -98,7 +98,10 @@ describe('@influxdata/influxdb3-client v2.x Point API', () => {
             const point = new Point('test');
             point.setBooleanField('active', true);
             const lp = point.toLineProtocol();
-            // Library may serialize as T/t/true/TRUE — just check it's there
+            // The @influxdata/influxdb3-client library serializes booleans in
+            // various formats across versions (T/t/true/TRUE). We use a flexible
+            // pattern to avoid breaking tests on library upgrades, since all
+            // formats are valid InfluxDB line protocol.
             expect(lp).toMatch(/active=(T|t|true|TRUE)/);
         });
 
@@ -106,6 +109,7 @@ describe('@influxdata/influxdb3-client v2.x Point API', () => {
             const point = new Point('test');
             point.setBooleanField('active', false);
             const lp = point.toLineProtocol();
+            // See above: flexible pattern for cross-version compatibility
             expect(lp).toMatch(/active=(F|f|false|FALSE)/);
         });
 
