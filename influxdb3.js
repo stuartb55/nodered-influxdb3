@@ -407,7 +407,49 @@ module.exports = function(RED) {
                     if (validationError) {
                         throw new Error(validationError);
                     }
-                } else if (msg.payload && typeof msg.payload === 'object' && !Array.isArray(msg.payload)) {
+                } else if (Array.isArray(msg.payload)) {
+                    // Handle array of measurements
+                    if (msg.payload.length === 0) {
+                        throw new Error('Payload array is empty');
+                    }
+
+                    const lineProtocols = [];
+                    for (let i = 0; i < msg.payload.length; i++) {
+                        const item = msg.payload[i];
+                        
+                        if (typeof item === 'string') {
+                            // String line protocol
+                            const lp = item.trim();
+                            if (!lp) {
+                                throw new Error(`Array item ${i} is an empty string`);
+                            }
+                            const validationError = validateLineProtocol(lp);
+                            if (validationError) {
+                                throw new Error(`Array item ${i}: ${validationError}`);
+                            }
+                            lineProtocols.push(lp);
+                        } else if (item && typeof item === 'object' && !Array.isArray(item)) {
+                            // Object payload - build line protocol
+                            const tempMsg = {
+                                ...msg,
+                                payload: item,
+                                measurement: item.measurement || msg.measurement || node.measurement
+                            };
+                            const result = buildLineProtocol(tempMsg);
+                            if (result.error) {
+                                throw new Error(`Array item ${i}: ${result.error}`);
+                            }
+                            lineProtocols.push(result.lineProtocol);
+                        } else {
+                            throw new Error(
+                                `Array item ${i} has invalid format. Expected string (line protocol) or object with fields. ` +
+                                `Received: ${typeof item}`
+                            );
+                        }
+                    }
+                    
+                    lineProtocol = lineProtocols.join('\n');
+                } else if (msg.payload && typeof msg.payload === 'object') {
                     const result = buildLineProtocol(msg);
                     if (result.error) {
                         throw new Error(result.error);
@@ -419,11 +461,9 @@ module.exports = function(RED) {
                         ? 'null'
                         : msg.payload === undefined
                             ? 'undefined'
-                            : Array.isArray(msg.payload)
-                                ? `Array (length ${msg.payload.length}): ${safeStringify(msg.payload)}`
-                                : `${actualType}${msg.payload && msg.payload.constructor ? ` [${msg.payload.constructor.name}]` : ''}: ${safeStringify(msg.payload)}`;
+                            : `${actualType}${msg.payload && msg.payload.constructor ? ` [${msg.payload.constructor.name}]` : ''}: ${safeStringify(msg.payload)}`;
                     throw new Error(
-                        `Invalid payload format. Expected string (line protocol) or object with fields. ` +
+                        `Invalid payload format. Expected string (line protocol), object with fields, or array of objects/strings. ` +
                         `Received: ${detail}`
                     );
                 }

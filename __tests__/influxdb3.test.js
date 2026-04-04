@@ -737,7 +737,20 @@ describe('buildLineProtocol – error cases', () => {
     expect(done.mock.calls[0][0].message).toContain('Line protocol string is empty');
   });
 
-  test('invalid payload type (array) produces error', async () => {
+  test('empty array produces error', async () => {
+    const { writeNode } = createWriteNode();
+    const msg = {
+      payload: []
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(done.mock.calls[0][0].message).toContain('Payload array is empty');
+  });
+
+  test('array with invalid item type produces error', async () => {
     const { writeNode } = createWriteNode();
     const msg = {
       payload: [1, 2, 3]
@@ -747,7 +760,180 @@ describe('buildLineProtocol – error cases', () => {
     await writeNode._handlers.input(msg, send, done);
 
     expect(done).toHaveBeenCalledWith(expect.any(Error));
-    expect(done.mock.calls[0][0].message).toContain('Invalid payload format');
+    expect(done.mock.calls[0][0].message).toContain('Array item 0 has invalid format');
+  });
+});
+
+describe('Array payload support', () => {
+  test('writes array of line protocol strings', async () => {
+    const { writeNode, influxModule } = createWriteNode();
+    const msg = {
+      payload: [
+        'temperature,location=room1 value=21.5',
+        'temperature,location=room2 value=19.8',
+        'humidity,location=room1 value=65'
+      ]
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalledWith(
+      'temperature,location=room1 value=21.5\ntemperature,location=room2 value=19.8\nhumidity,location=room1 value=65',
+      'metrics'
+    );
+    expect(send).toHaveBeenCalledWith(msg);
+    expect(done).toHaveBeenCalled();
+  });
+
+  test('writes array of object payloads', async () => {
+    const { writeNode, influxModule } = createWriteNode();
+    const msg = {
+      payload: [
+        {
+          measurement: 'temperature',
+          fields: { value: 21.5 },
+          tags: { location: 'room1' }
+        },
+        {
+          measurement: 'temperature',
+          fields: { value: 19.8 },
+          tags: { location: 'room2' }
+        },
+        {
+          measurement: 'humidity',
+          fields: { value: 65 },
+          tags: { location: 'room1' }
+        }
+      ]
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(msg);
+    expect(done).toHaveBeenCalled();
+  });
+
+  test('writes mixed array of objects and line protocol strings', async () => {
+    const { writeNode, influxModule } = createWriteNode();
+    const msg = {
+      payload: [
+        'temperature,location=room1 value=21.5',
+        {
+          measurement: 'humidity',
+          fields: { value: 65 },
+          tags: { location: 'room1' }
+        },
+        'pressure,location=room1 value=1013.25'
+      ]
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(msg);
+    expect(done).toHaveBeenCalled();
+  });
+
+  test('array objects can use msg.measurement as fallback', async () => {
+    const { writeNode, influxModule } = createWriteNode();
+    const msg = {
+      measurement: 'temperature',
+      payload: [
+        {
+          fields: { value: 21.5 },
+          tags: { location: 'room1' }
+        },
+        {
+          fields: { value: 19.8 },
+          tags: { location: 'room2' }
+        }
+      ]
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(msg);
+    expect(done).toHaveBeenCalled();
+  });
+
+  test('array item error includes item index', async () => {
+    const { RED, influxModule } = setup();
+    const ConfigCtor = RED._types['influxdb3-config'];
+    const WriteCtor = RED._types['influxdb3-write'];
+
+    const configNode = new ConfigCtor({
+      host: 'https://example.com',
+      database: 'metrics',
+      name: 'Test',
+      credentials: { token: 'token' }
+    });
+
+    // Create node without default measurement
+    const writeNode = new WriteCtor({
+      influxdb: configNode,
+      measurement: '',  // No default measurement
+      database: ''
+    });
+
+    const msg = {
+      payload: [
+        'temperature,location=room1 value=21.5',
+        {
+          // Missing measurement and no fallback
+          fields: { value: 19.8 }
+        }
+      ]
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(done.mock.calls[0][0].message).toContain('Array item 1');
+  });
+
+  test('array with empty string produces error', async () => {
+    const { writeNode } = createWriteNode();
+    const msg = {
+      payload: [
+        'temperature,location=room1 value=21.5',
+        '   ',
+        'humidity,location=room1 value=65'
+      ]
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(done.mock.calls[0][0].message).toContain('Array item 1 is an empty string');
+  });
+
+  test('array with invalid line protocol produces error with index', async () => {
+    const { writeNode } = createWriteNode();
+    const msg = {
+      payload: [
+        'temperature,location=room1 value=21.5',
+        'invalid line protocol no equals',
+        'humidity,location=room1 value=65'
+      ]
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(done.mock.calls[0][0].message).toContain('Array item 1');
   });
 });
 

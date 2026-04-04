@@ -117,11 +117,12 @@
     
     <h3>Inputs</h3>
     <dl class="message-properties">
-        <dt>payload <span class="property-type">string | object</span></dt>
+        <dt>payload <span class="property-type">string | object | array</span></dt>
         <dd>The data to write. Can be either:
             <ul>
                 <li>A string in line protocol format</li>
                 <li>An object with <code>fields</code> (required) and optionally <code>tags</code> and <code>timestamp</code></li>
+                <li>An array of strings (line protocol) or objects (multiple measurements in one write)</li>
             </ul>
         </dd>
         <dt class="optional">measurement <span class="property-type">string</span></dt>
@@ -231,6 +232,34 @@ return msg;</pre>
 
     <h4>Example 3: Line protocol string</h4>
     <pre>msg.payload = "weather,location=garden temperature=18.5,humidity=75";
+return msg;</pre>
+
+    <h4>Example 4: Array of multiple measurements</h4>
+    <pre>msg.payload = [
+  {
+    "measurement": "temperature",
+    "fields": { "value": 21.5 },
+    "tags": { "location": "room1" }
+  },
+  {
+    "measurement": "temperature", 
+    "fields": { "value": 19.8 },
+    "tags": { "location": "room2" }
+  },
+  {
+    "measurement": "humidity",
+    "fields": { "value": 65 },
+    "tags": { "location": "room1" }
+  }
+];
+return msg;</pre>
+
+    <h4>Example 5: Array of line protocol strings</h4>
+    <pre>msg.payload = [
+  "temperature,location=room1 value=21.5",
+  "temperature,location=room2 value=19.8",
+  "humidity,location=room1 value=65"
+];
 return msg;</pre>
 
     <h3>References</h3>

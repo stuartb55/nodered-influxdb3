@@ -118,6 +118,55 @@ msg.payload = {
 return msg;
 ```
 
+#### 4. Array of Multiple Measurements
+
+Send an array to write multiple measurements in a single message:
+
+```javascript
+// Array of objects
+msg.payload = [
+    {
+        measurement: "temperature",
+        fields: { value: 21.5 },
+        tags: { location: "room1" }
+    },
+    {
+        measurement: "temperature",
+        fields: { value: 19.8 },
+        tags: { location: "room2" }
+    },
+    {
+        measurement: "humidity",
+        fields: { value: 65 },
+        tags: { location: "room1" }
+    }
+];
+return msg;
+```
+
+```javascript
+// Array of line protocol strings
+msg.payload = [
+    "temperature,location=room1 value=21.5",
+    "temperature,location=room2 value=19.8",
+    "humidity,location=room1 value=65"
+];
+return msg;
+```
+
+```javascript
+// Mixed array (objects and strings)
+msg.payload = [
+    "temperature,location=room1 value=21.5",
+    {
+        measurement: "humidity",
+        fields: { value: 65 },
+        tags: { location: "room1" }
+    }
+];
+return msg;
+```
+
 ### Data Types
 
 **Important:** By default, **all numbers are written as floats** to avoid schema conflicts in InfluxDB. This is because JavaScript doesn't distinguish between `1.0` and `1` (both equal `1`), which can cause issues when InfluxDB expects a float but receives an integer.
