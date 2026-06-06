@@ -13,6 +13,8 @@ module.exports = function(RED) {
     //   Point.setTimestamp(date)
     //   Point.toLineProtocol()
     const { InfluxDBClient, Point } = require('@influxdata/influxdb3-client');
+    const fs = require('fs');
+    const { validateLineProtocol } = require('./lib/line-protocol');
 
     /**
      * Normalize host URL to ensure it has trailing slash
@@ -75,23 +77,44 @@ module.exports = function(RED) {
 
                 const normalizedHost = normalizeHost(configNode.host);
 
+                // Build per-client transport (TLS) options. These are passed only to this
+                // client's HTTPS requests, so they do NOT affect other connections or the
+                // rest of the Node-RED process (unlike NODE_TLS_REJECT_UNAUTHORIZED /
+                // NODE_EXTRA_CA_CERTS, which are global and read only at process startup).
+                const transportOptions = {};
+
                 if (!configNode.tlsRejectUnauthorized) {
-                    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-                    RED.log.warn('InfluxDB v3: TLS certificate verification is disabled for this process.');
+                    transportOptions.rejectUnauthorized = false;
+                    RED.log.warn(
+                        'InfluxDB v3: TLS certificate verification is disabled for this connection. ' +
+                        'This is insecure and should only be used for trusted local instances.'
+                    );
                 }
 
                 if (configNode.caCertPath) {
-                    process.env.NODE_EXTRA_CA_CERTS = configNode.caCertPath;
-                    RED.log.info(`InfluxDB v3: Using extra CA certificates from ${configNode.caCertPath}`);
+                    try {
+                        transportOptions.ca = fs.readFileSync(configNode.caCertPath);
+                        RED.log.info(`InfluxDB v3: Using custom CA certificate from ${configNode.caCertPath}`);
+                    } catch (error) {
+                        throw new Error(
+                            `Failed to read CA certificate from '${configNode.caCertPath}': ${error.message}`,
+                            { cause: error }
+                        );
+                    }
                 }
 
                 RED.log.info(`InfluxDB v3: Connecting to ${normalizedHost} with database ${configNode.database}`);
 
-                configNode.client = new InfluxDBClient({
+                const clientOptions = {
                     host: normalizedHost,
                     token: configNode.token,
                     database: configNode.database
-                });
+                };
+                if (Object.keys(transportOptions).length > 0) {
+                    clientOptions.transportOptions = transportOptions;
+                }
+
+                configNode.client = new InfluxDBClient(clientOptions);
 
                 RED.log.info('InfluxDB v3: Client created successfully');
             }
@@ -158,38 +181,6 @@ module.exports = function(RED) {
         }
 
         /**
-         * Validate that a string looks like InfluxDB line protocol.
-         * Returns null if valid, or an error message string if invalid.
-         * @param {string} lp - Trimmed line protocol string
-         * @returns {string|null}
-         */
-        function validateLineProtocol(lp) {
-            // Detect JSON-like strings (both valid JSON and JS object notation)
-            if (/^\{[\s\S]*}$/.test(lp) || /^\[[\s\S]*]$/.test(lp)) {
-                const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
-                return (
-                    'The payload appears to be a JSON/object string, not line protocol. ' +
-                    'If you are sending JSON, ensure msg.payload is a parsed object (not a string). ' +
-                    'Use a JSON parse node before this node to convert the string to an object. ' +
-                    `Received string: ${preview}`
-                );
-            }
-
-            // Line protocol must have at least: measurement field=value
-            // i.e. at least one space and one '=' in the field set
-            if (!lp.includes(' ') || !lp.includes('=')) {
-                const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
-                return (
-                    'The payload string does not appear to be valid line protocol. ' +
-                    'Expected format: measurement[,tag=val] field=val[,field=val] [timestamp]. ' +
-                    `Received: ${preview}`
-                );
-            }
-
-            return null;
-        }
-
-        /**
          * Process a field value and add it to a Point.
          * Returns true if the field was added, false if it was skipped.
          *
@@ -253,10 +244,10 @@ module.exports = function(RED) {
                     if (!Number.isInteger(value)) {
                         node.warn(
                             `Field '${key}' is marked as integer but value is ${value}${context}. ` +
-                            `Value will be truncated to ${Math.floor(value)} using Math.floor.`
+                            `Value will be truncated to ${Math.trunc(value)}.`
                         );
                     }
-                    point.setIntegerField(key, Math.floor(value));
+                    point.setIntegerField(key, Math.trunc(value));
                 } else {
                     point.setFloatField(key, value);
                 }
@@ -297,7 +288,11 @@ module.exports = function(RED) {
          * @returns {{lineProtocol: string}|{error: string}} result or error
          */
         function buildLineProtocol(msg) {
-            const measurement = msg.measurement || node.measurement;
+            // Trim each source before the fallback so a blank/whitespace-only
+            // msg.measurement falls back to the node default (instead of being used
+            // verbatim) and never produces a measurement made of spaces.
+            const trim = (m) => (typeof m === 'string' ? m.trim() : m);
+            const measurement = trim(msg.measurement) || trim(node.measurement);
 
             if (!measurement) {
                 return { error: 'Measurement not specified' };
@@ -307,10 +302,25 @@ module.exports = function(RED) {
 
             // Add tags
             if (msg.payload.tags && typeof msg.payload.tags === 'object' && !Array.isArray(msg.payload.tags)) {
+                const tagContext = measurement ? ` (measurement: '${measurement}')` : '';
                 for (const [key, value] of Object.entries(msg.payload.tags)) {
-                    if (value !== null && value !== undefined) {
-                        point.setTag(key, String(value));
+                    if (value === null || value === undefined) {
+                        continue;
                     }
+                    // Guard against objects/arrays, which would otherwise be coerced to
+                    // useless strings like "[object Object]". Mirrors addFieldToPoint.
+                    if (typeof value === 'object') {
+                        const typeName = Array.isArray(value)
+                            ? 'Array'
+                            : (value.constructor ? value.constructor.name : 'object');
+                        node.warn(
+                            `Skipping tag '${key}': unsupported type 'object' (${typeName})${tagContext}. ` +
+                            `Actual value: ${safeStringify(value)}. ` +
+                            `Tag values must be a string, number, or boolean.`
+                        );
+                        continue;
+                    }
+                    point.setTag(key, String(value));
                 }
             }
 

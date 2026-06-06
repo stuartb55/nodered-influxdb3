@@ -4,6 +4,7 @@
   "description": "Node-RED nodes for InfluxDB v3 integration",
   "main": "influxdb3.js",
   "scripts": {
+    "lint": "eslint .",
     "test": "jest"
   },
   "keywords": [
@@ -33,9 +34,12 @@
     }
   },
   "dependencies": {
-    "@influxdata/influxdb3-client": "^2.1.0"
+    "@influxdata/influxdb3-client": "^2.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
     "jest": "^30.3.0"
   }
 }

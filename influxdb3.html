@@ -62,9 +62,9 @@
         <dt>Database <span class="property-type">string</span></dt>
         <dd>The default database (bucket) name to write to</dd>
         <dt>Verify TLS <span class="property-type">boolean</span></dt>
-        <dd>When unchecked, sets <code>NODE_TLS_REJECT_UNAUTHORIZED=0</code> for the Node-RED process</dd>
+        <dd>When unchecked, disables TLS certificate verification for this connection only (insecure; use only for trusted local instances)</dd>
         <dt>CA Cert Path <span class="property-type">string</span></dt>
-        <dd>Optional filesystem path used to set <code>NODE_EXTRA_CA_CERTS</code> for custom root CAs</dd>
+        <dd>Optional filesystem path to a PEM CA certificate, used to verify this connection's TLS certificate</dd>
     </dl>
 </script>
 

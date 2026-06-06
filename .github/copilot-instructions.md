@@ -19,8 +19,8 @@
 
 ## Developer workflow
 - Install deps with `npm install` (see `README.md`). Link into a local Node-RED user dir via `npm install /path/to/node-red-contrib-influxdb3` and restart Node-RED.
-- There are no automated tests yet (`npm test` prints a placeholder message in `package.json`).
-- Runtime requirements: Node.js >=14, Node-RED >=3 (see `package.json`).
+- Run tests with `npm test` (Jest). Tests live in `__tests__/` (mocked client) and `test/` (real client + pure helpers); run a single file with `npx jest <path>`.
+- Runtime requirements: Node.js >=18, Node-RED >=3 (see `package.json`).
 
 ## Project conventions
 - Normalize hosts to include a trailing slash before creating the client.
