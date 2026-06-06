@@ -396,8 +396,10 @@ module.exports = function(RED) {
             try {
                 const client = node.influxdb.getClient();
 
-                // Determine the database to use
-                const targetDatabase = msg.database || node.database || node.influxdb.database;
+                // Determine the database to use. Trim each source before the fallback so a
+                // blank/whitespace-only msg.database falls back instead of being used verbatim.
+                const trimDb = (d) => (typeof d === 'string' ? d.trim() : d);
+                const targetDatabase = trimDb(msg.database) || trimDb(node.database) || trimDb(node.influxdb.database);
 
                 if (!targetDatabase) {
                     throw new Error('Database not specified');

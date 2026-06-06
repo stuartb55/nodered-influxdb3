@@ -1,8 +1,16 @@
 {
   "name": "node-red-contrib-influxdb3",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Node-RED nodes for InfluxDB v3 integration",
   "main": "influxdb3.js",
+  "files": [
+    "influxdb3.js",
+    "influxdb3.html",
+    "lib/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "lint": "eslint .",
     "test": "jest"
