@@ -52,8 +52,8 @@ A configuration node that stores connection details for your InfluxDB v3 instanc
 - **Host**: Your InfluxDB v3 host URL (e.g., `https://us-east-1-1.aws.cloud2.influxdata.com`)
 - **Token**: Your InfluxDB v3 authentication token
 - **Database**: The default database (bucket) name
-- **Verify TLS**: Toggle TLS certificate verification (unchecked sets `NODE_TLS_REJECT_UNAUTHORIZED=0`)
-- **CA Cert Path**: Optional filesystem path for a custom root CA (`NODE_EXTRA_CA_CERTS`)
+- **Verify TLS**: Toggle TLS certificate verification for this connection (unchecked disables verification for this connection only)
+- **CA Cert Path**: Optional filesystem path to a PEM CA certificate used to verify this connection's TLS certificate
 
 ### InfluxDB v3 Write Node
 
@@ -399,8 +399,8 @@ Simply reference them in the Node-RED UI using `${INFLUX_HOST}` syntax (if using
 
 If you are connecting to a local InfluxDB v3 instance with a custom certificate:
 
-- Set **CA Cert Path** in the config node to the PEM file containing your root CA. This sets `NODE_EXTRA_CA_CERTS` for the Node-RED process.
-- As a last resort, disable **Verify TLS** to set `NODE_TLS_REJECT_UNAUTHORIZED=0` (this disables TLS verification globally for the process).
+- Set **CA Cert Path** in the config node to the PEM file containing your root CA. The certificate is read when the connection is first used and applied to this connection only.
+- As a last resort, disable **Verify TLS**. This skips certificate verification for this connection only (it does not affect other connections or the rest of the Node-RED process).
 
 ### Data Not Appearing
 
@@ -416,7 +416,8 @@ The node will display error status and log details to the Node-RED debug panel:
 
 ## Requirements
 
-- Node-RED v2.0.0 or higher
+- Node.js v18.0.0 or higher
+- Node-RED v3.0.0 or higher
 - InfluxDB v3 instance (Cloud or Edge)
 
 ## License

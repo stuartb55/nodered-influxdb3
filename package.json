@@ -33,7 +33,7 @@
     }
   },
   "dependencies": {
-    "@influxdata/influxdb3-client": "^2.1.0"
+    "@influxdata/influxdb3-client": "^2.2.0"
   },
   "devDependencies": {
     "jest": "^30.3.0"

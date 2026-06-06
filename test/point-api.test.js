@@ -1,56 +1,69 @@
 const { Point } = require('@influxdata/influxdb3-client');
 
-describe('@influxdata/influxdb3-client v2.x Point API', () => {
-    test('Point.setField exists and is a function', () => {
-        const point = new Point('test');
-        expect(typeof point.setField).toBe('function');
-    });
-
-    test('Point.setField accepts (name, value) for float', () => {
-        const point = new Point('test');
-        point.setField('temp', 23.5);
-        const lp = point.toLineProtocol();
+/**
+ * Pins the real @influxdata/influxdb3-client Point API that influxdb3.js depends on.
+ * The node uses the type-specific setters (setFloatField / setIntegerField /
+ * setStringField / setBooleanField / setTag / setTimestamp) and toLineProtocol(),
+ * so those are what we verify here — if the library changes them, this suite fails.
+ */
+describe('@influxdata/influxdb3-client v2.x Point API used by influxdb3.js', () => {
+    test('setFloatField writes a float field', () => {
+        const lp = new Point('test').setFloatField('temp', 23.5).toLineProtocol();
         expect(lp).toContain('temp=23.5');
     });
 
-    test('Point.setField accepts (name, value, "integer") for integer', () => {
-        const point = new Point('test');
-        point.setField('count', 42, 'integer');
-        const lp = point.toLineProtocol();
+    test('setFloatField keeps whole numbers as floats (no i suffix)', () => {
+        const lp = new Point('test').setFloatField('count', 60).toLineProtocol();
+        expect(lp).toContain('count=60');
+        expect(lp).not.toContain('count=60i');
+    });
+
+    test('setIntegerField writes an integer field with the i suffix', () => {
+        const lp = new Point('test').setIntegerField('count', 42).toLineProtocol();
         expect(lp).toContain('count=42i');
     });
 
-    test('Point.setField accepts (name, value) for string', () => {
-        const point = new Point('test');
-        point.setField('status', 'ok');
-        const lp = point.toLineProtocol();
+    test('setIntegerField supports negative integers', () => {
+        const lp = new Point('test').setIntegerField('offset', -7).toLineProtocol();
+        expect(lp).toContain('offset=-7i');
+    });
+
+    test('setStringField writes a quoted string field', () => {
+        const lp = new Point('test').setStringField('status', 'ok').toLineProtocol();
         expect(lp).toContain('status="ok"');
     });
 
-    test('Point.setField accepts (name, value) for boolean', () => {
-        const point = new Point('test');
-        point.setField('active', true);
-        const lp = point.toLineProtocol();
+    test('setBooleanField writes a boolean field', () => {
+        const lp = new Point('test').setBooleanField('active', true).toLineProtocol();
         // Library serializes booleans as T/F in line protocol
         expect(lp).toContain('active=T');
     });
 
-    test('Point.setTag exists and is a function', () => {
-        const point = new Point('test');
-        expect(typeof point.setTag).toBe('function');
+    test('setTag writes a tag in the measurement,tag=value section', () => {
+        const lp = new Point('test')
+            .setTag('location', 'room1')
+            .setFloatField('value', 1)
+            .toLineProtocol();
+        expect(lp).toContain('test,location=room1 ');
     });
 
-    test('Point.setTimestamp exists and is a function', () => {
-        const point = new Point('test');
-        expect(typeof point.setTimestamp).toBe('function');
+    test('setTimestamp accepts a Date and appends a nanosecond timestamp', () => {
+        const lp = new Point('test')
+            .setFloatField('value', 1)
+            .setTimestamp(new Date(1700000000000))
+            .toLineProtocol();
+        // 1700000000000 ms -> 1700000000000000000 ns
+        expect(lp).toContain('1700000000000000000');
     });
 
-    test('type-specific methods exist alongside generic setField', () => {
+    test('the setters used by the node are all functions', () => {
         const point = new Point('test');
-        expect(typeof point.setIntegerField).toBe('function');
         expect(typeof point.setFloatField).toBe('function');
+        expect(typeof point.setIntegerField).toBe('function');
         expect(typeof point.setStringField).toBe('function');
         expect(typeof point.setBooleanField).toBe('function');
+        expect(typeof point.setTag).toBe('function');
+        expect(typeof point.setTimestamp).toBe('function');
+        expect(typeof point.toLineProtocol).toBe('function');
     });
 });
-

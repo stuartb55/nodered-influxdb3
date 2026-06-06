@@ -1,32 +1,10 @@
 /**
  * Tests for line protocol string validation.
- * Mirrors the validateLineProtocol logic in influxdb3.js.
+ * Imports the real validateLineProtocol from the shipping code so the test
+ * cannot drift from the implementation.
  */
 
-// Re-implement the validation logic here to test it in isolation
-// (the function is not exported from influxdb3.js)
-function validateLineProtocol(lp) {
-    if (/^\{[\s\S]*}$/.test(lp) || /^\[[\s\S]*]$/.test(lp)) {
-        const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
-        return (
-            'The payload appears to be a JSON/object string, not line protocol. ' +
-            'If you are sending JSON, ensure msg.payload is a parsed object (not a string). ' +
-            'Use a JSON parse node before this node to convert the string to an object. ' +
-            `Received string: ${preview}`
-        );
-    }
-
-    if (!lp.includes(' ') || !lp.includes('=')) {
-        const preview = lp.length > 100 ? lp.substring(0, 100) + '...' : lp;
-        return (
-            'The payload string does not appear to be valid line protocol. ' +
-            'Expected format: measurement[,tag=val] field=val[,field=val] [timestamp]. ' +
-            `Received: ${preview}`
-        );
-    }
-
-    return null;
-}
+const { validateLineProtocol } = require('../lib/line-protocol');
 
 describe('Line protocol string validation', () => {
     test('valid line protocol returns null', () => {
