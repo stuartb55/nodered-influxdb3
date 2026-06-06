@@ -1040,7 +1040,7 @@ describe('Array payload support', () => {
   });
 
   test('array item error includes item index', async () => {
-    const { RED, influxModule } = setup();
+    const { RED } = setup();
     const ConfigCtor = RED._types['influxdb3-config'];
     const WriteCtor = RED._types['influxdb3-write'];
 
@@ -1107,6 +1107,155 @@ describe('Array payload support', () => {
 
     expect(done).toHaveBeenCalledWith(expect.any(Error));
     expect(done.mock.calls[0][0].message).toContain('Array item 1');
+  });
+});
+
+describe('write node – client.write failure', () => {
+  test('rejected write sets red status and calls done with the error', async () => {
+    const { configNode, writeNode } = createWriteNode();
+
+    // Pre-create the cached client and make its write reject
+    const client = configNode.getClient();
+    client.write = jest.fn().mockRejectedValue(new Error('connection refused'));
+
+    const msg = {
+      measurement: 'sensor',
+      payload: { fields: { value: 1 } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(client.write).toHaveBeenCalled();
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(done.mock.calls[0][0].message).toBe('connection refused');
+    // Error status is red and the message is NOT forwarded
+    expect(writeNode.status).toHaveBeenCalledWith(
+      expect.objectContaining({ fill: 'red', text: 'connection refused' })
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test('long error messages are truncated in the node status', async () => {
+    const { configNode, writeNode } = createWriteNode();
+    const longMessage = 'x'.repeat(200);
+
+    const client = configNode.getClient();
+    client.write = jest.fn().mockRejectedValue(new Error(longMessage));
+
+    const msg = { measurement: 'sensor', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const statusArg = writeNode.status.mock.calls.find(c => c[0] && c[0].fill === 'red')[0];
+    expect(statusArg.text.length).toBeLessThanOrEqual(83); // 80 chars + '...'
+    expect(statusArg.text.endsWith('...')).toBe(true);
+    // done still receives the full, untruncated error
+    expect(done.mock.calls[0][0].message).toBe(longMessage);
+  });
+});
+
+describe('config node – close()', () => {
+  test('close() closes the cached client and clears the reference', () => {
+    const { configNode } = createWriteNode();
+
+    const client = configNode.getClient();
+    expect(configNode.client).toBe(client);
+
+    configNode._handlers.close();
+
+    expect(client.close).toHaveBeenCalled();
+    expect(configNode.client).toBeNull();
+  });
+
+  test('close() is a no-op when no client was ever created', () => {
+    const { configNode } = createWriteNode();
+    expect(configNode.client).toBeNull();
+    expect(() => configNode._handlers.close()).not.toThrow();
+  });
+});
+
+describe('write node – measurement resolution', () => {
+  test('empty msg.measurement falls back to the node default', async () => {
+    const { influxModule, writeNode } = createWriteNode(); // node default: 'test_measurement'
+    const msg = {
+      measurement: '',
+      payload: { fields: { value: 1 } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const point = influxModule.__getLastPoint();
+    expect(point.measurement).toBe('test_measurement');
+    expect(done).toHaveBeenCalled();
+    expect(done.mock.calls[0][0]).toBeUndefined();
+  });
+
+  test('msg.measurement overrides the node default', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'override',
+      payload: { fields: { value: 1 } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const point = influxModule.__getLastPoint();
+    expect(point.measurement).toBe('override');
+  });
+
+  test('whitespace-only msg.measurement falls back to the node default', async () => {
+    const { influxModule, writeNode } = createWriteNode(); // node default: 'test_measurement'
+    const msg = {
+      measurement: '   ',
+      payload: { fields: { value: 1 } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const point = influxModule.__getLastPoint();
+    expect(point.measurement).toBe('test_measurement');
+    expect(done.mock.calls[0][0]).toBeUndefined();
+  });
+
+  test('a provided measurement is trimmed before use', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: '  spaced  ',
+      payload: { fields: { value: 1 } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const point = influxModule.__getLastPoint();
+    expect(point.measurement).toBe('spaced');
+  });
+
+  test('whitespace-only measurement with no node default errors', async () => {
+    const { RED } = setup();
+    const ConfigCtor = RED._types['influxdb3-config'];
+    const WriteCtor = RED._types['influxdb3-write'];
+
+    const configNode = new ConfigCtor({
+      host: 'https://example.com',
+      database: 'metrics',
+      name: 'Test',
+      credentials: { token: 'token' }
+    });
+    const writeNode = new WriteCtor({ influxdb: configNode, measurement: '', database: '' });
+
+    const msg = { measurement: '   ', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(done.mock.calls[0][0].message).toContain('Measurement not specified');
   });
 });
 

@@ -97,7 +97,8 @@ module.exports = function(RED) {
                         RED.log.info(`InfluxDB v3: Using custom CA certificate from ${configNode.caCertPath}`);
                     } catch (error) {
                         throw new Error(
-                            `Failed to read CA certificate from '${configNode.caCertPath}': ${error.message}`
+                            `Failed to read CA certificate from '${configNode.caCertPath}': ${error.message}`,
+                            { cause: error }
                         );
                     }
                 }
@@ -287,7 +288,11 @@ module.exports = function(RED) {
          * @returns {{lineProtocol: string}|{error: string}} result or error
          */
         function buildLineProtocol(msg) {
-            const measurement = msg.measurement || node.measurement;
+            // Trim each source before the fallback so a blank/whitespace-only
+            // msg.measurement falls back to the node default (instead of being used
+            // verbatim) and never produces a measurement made of spaces.
+            const trim = (m) => (typeof m === 'string' ? m.trim() : m);
+            const measurement = trim(msg.measurement) || trim(node.measurement);
 
             if (!measurement) {
                 return { error: 'Measurement not specified' };
