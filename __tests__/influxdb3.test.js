@@ -1176,6 +1176,39 @@ describe('config node – close()', () => {
   });
 });
 
+describe('write node – database resolution', () => {
+  test('whitespace-only msg.database falls back to the connection default', async () => {
+    const { influxModule, writeNode } = createWriteNode(); // connection database: 'metrics'
+    const msg = {
+      measurement: 'sensor',
+      database: '   ',
+      payload: { fields: { value: 1 } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalledWith(expect.any(String), 'metrics');
+    expect(done.mock.calls[0][0]).toBeUndefined();
+  });
+
+  test('a provided msg.database is trimmed before use', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      database: '  override-db  ',
+      payload: { fields: { value: 1 } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalledWith(expect.any(String), 'override-db');
+  });
+});
+
 describe('write node – measurement resolution', () => {
   test('empty msg.measurement falls back to the node default', async () => {
     const { influxModule, writeNode } = createWriteNode(); // node default: 'test_measurement'
