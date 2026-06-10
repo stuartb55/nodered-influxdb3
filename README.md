@@ -80,6 +80,8 @@ msg.payload = "temperature,location=room1 value=21.5";
 return msg;
 ```
 
+> **Note:** raw line protocol strings are passed through unmodified (each line is only sanity-checked). When data comes from an untrusted source, prefer the object formats below — the node escapes measurement, tag and field values automatically.
+
 #### 2. Object with Fields and Tags
 
 Send an object with explicit `fields` and `tags` properties:
@@ -102,7 +104,7 @@ return msg;
 
 #### 3. Simplified Object Format
 
-Send an object where all properties (except 'tags' and 'timestamp') are treated as fields:
+Send an object where all properties are treated as fields, except the reserved keys `measurement`, `fields`, `tags`, `timestamp` and `integers`:
 
 ```javascript
 msg.measurement = "environment";
@@ -416,7 +418,7 @@ The node will display error status and log details to the Node-RED debug panel:
 
 ## Requirements
 
-- Node.js v18.0.0 or higher
+- Node.js v24.0.0 or higher
 - Node-RED v3.0.0 or higher
 - InfluxDB v3 instance (Cloud or Edge)
 

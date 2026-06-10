@@ -1292,6 +1292,225 @@ describe('write node – measurement resolution', () => {
   });
 });
 
+describe('buildLineProtocol – measurement is a reserved key', () => {
+  test('array item in simplified format does not write measurement as a field', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      payload: [
+        { measurement: 'temp', value: 21.5, tags: { room: 'a' } }
+      ]
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const point = influxModule.__getLastPoint();
+    expect(point.measurement).toBe('temp');
+    expect(point.floatFields.value).toBe(21.5);
+    expect(point.tags.room).toBe('a');
+    // The regression: 'measurement' must not leak into the fields
+    expect(point.stringFields.measurement).toBeUndefined();
+    expect(point.floatFields.measurement).toBeUndefined();
+    expect(done.mock.calls[0][0]).toBeUndefined();
+  });
+
+  test('non-array simplified payload excludes a measurement property from fields', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: { measurement: 'ignored', value: 1 }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const point = influxModule.__getLastPoint();
+    expect(point.measurement).toBe('sensor');
+    expect(point.stringFields.measurement).toBeUndefined();
+    expect(point.floatFields.value).toBe(1);
+  });
+});
+
+describe('buildLineProtocol – non-object fields property', () => {
+  test('string fields property is ignored with a warning', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: { fields: 'temp=21', value: 1 }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(writeNode.warn).toHaveBeenCalledWith(
+      expect.stringContaining("'fields' is present but is not a plain object (string)")
+    );
+    const point = influxModule.__getLastPoint();
+    expect(point.floatFields.value).toBe(1);
+    expect(point.stringFields.fields).toBeUndefined();
+  });
+
+  test('array fields property is ignored with a warning naming Array', async () => {
+    const { writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: { fields: [1, 2], value: 1 }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(writeNode.warn).toHaveBeenCalledWith(
+      expect.stringContaining("'fields' is present but is not a plain object (Array)")
+    );
+  });
+});
+
+describe('addFieldToPoint – unsafe integer suffix', () => {
+  test('integer suffix beyond Number.MAX_SAFE_INTEGER warns about precision loss', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: { fields: { big: '9007199254740993i' } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(writeNode.warn).toHaveBeenCalledWith(
+      expect.stringContaining("exceeds JavaScript's safe integer range")
+    );
+    const point = influxModule.__getLastPoint();
+    expect(point.integerFields.big).toBeDefined();
+  });
+
+  test('integer suffix within safe range does not warn', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: { fields: { count: '42i' } }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(writeNode.warn).not.toHaveBeenCalled();
+    const point = influxModule.__getLastPoint();
+    expect(point.integerFields.count).toBe(42);
+  });
+});
+
+describe('buildLineProtocol – timestamp plausibility', () => {
+  test('seconds-scale timestamp is written but warns about millisecond interpretation', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: {
+        fields: { value: 1 },
+        timestamp: 1700000000 // seconds, not ms -> Jan 1970 when read as ms
+      }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(writeNode.warn).toHaveBeenCalledWith(
+      expect.stringContaining('interpreted as milliseconds')
+    );
+    const point = influxModule.__getLastPoint();
+    expect(point.timestamp).toEqual(new Date(1700000000));
+    expect(done.mock.calls[0][0]).toBeUndefined();
+  });
+
+  test('nanosecond-scale timestamp beyond the Date range is ignored with a warning', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: {
+        fields: { value: 1 },
+        timestamp: 1.7e18 // nanoseconds -> not representable as a Date
+      }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(writeNode.warn).toHaveBeenCalledWith(
+      expect.stringContaining('outside the representable date range')
+    );
+    const point = influxModule.__getLastPoint();
+    expect(point.timestamp).toBeNull();
+    expect(done.mock.calls[0][0]).toBeUndefined();
+  });
+
+  test('explicit epoch 0 timestamp is written without a warning', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: {
+        fields: { value: 1 },
+        timestamp: 0
+      }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(writeNode.warn).not.toHaveBeenCalled();
+    const point = influxModule.__getLastPoint();
+    expect(point.timestamp).toEqual(new Date(0));
+  });
+
+  test('plausible millisecond timestamp does not warn', async () => {
+    const { writeNode } = createWriteNode();
+    const msg = {
+      measurement: 'sensor',
+      payload: {
+        fields: { value: 1 },
+        timestamp: 1700000000000
+      }
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(writeNode.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('write node – multi-line string payload validation', () => {
+  test('valid multi-line line protocol is written as-is', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = {
+      payload: 'temperature,location=a value=21.5\ntemperature,location=b value=19.8'
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalledWith(
+      'temperature,location=a value=21.5\ntemperature,location=b value=19.8',
+      'metrics'
+    );
+    expect(done.mock.calls[0][0]).toBeUndefined();
+  });
+
+  test('invalid line inside a multi-line payload errors with the line number', async () => {
+    const { writeNode } = createWriteNode();
+    const msg = {
+      payload: 'temperature,location=a value=21.5\nnot-line-protocol\nhumidity,location=a value=65'
+    };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(done.mock.calls[0][0].message).toContain('Line 2');
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
 describe('InfluxDB v3 config node – credentials warning', () => {
   test('logs warning when credentials object is undefined', () => {
     const RED = buildRED();

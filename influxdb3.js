@@ -16,6 +16,11 @@ module.exports = function(RED) {
     const fs = require('fs');
     const { validateLineProtocol } = require('./lib/line-protocol');
 
+    // Heuristic bounds for plausible millisecond timestamps. Values outside this
+    // range usually mean the source supplied seconds or nanoseconds instead.
+    const MS_TIMESTAMP_PLAUSIBLE_MIN = Date.UTC(2000, 0, 1);
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
     /**
      * Normalize host URL to ensure it has trailing slash
      * @param {string} host
@@ -220,7 +225,14 @@ module.exports = function(RED) {
             if (typeof value === 'string') {
                 // Check for integer suffix e.g. "42i"
                 if (/^-?\d+i$/.test(value)) {
-                    point.setIntegerField(key, parseInt(value.slice(0, -1), 10));
+                    const parsed = parseInt(value.slice(0, -1), 10);
+                    if (!Number.isSafeInteger(parsed)) {
+                        node.warn(
+                            `Field '${key}': integer value '${value}' exceeds JavaScript's safe integer ` +
+                            `range and loses precision (stored as ${parsed})${context}.`
+                        );
+                    }
+                    point.setIntegerField(key, parsed);
                     return true;
                 }
                 point.setStringField(key, value);
@@ -337,8 +349,19 @@ module.exports = function(RED) {
                     }
                 }
             } else {
-                // Simplified format: treat all non-reserved properties as fields
-                const reservedKeys = new Set(['tags', 'timestamp', 'integers', 'fields']);
+                if (msg.payload.fields !== null && msg.payload.fields !== undefined) {
+                    const typeName = Array.isArray(msg.payload.fields)
+                        ? 'Array'
+                        : typeof msg.payload.fields;
+                    node.warn(
+                        `'fields' is present but is not a plain object (${typeName}) (measurement: '${measurement}'). ` +
+                        `It will be ignored and the other payload properties will be treated as fields.`
+                    );
+                }
+                // Simplified format: treat all non-reserved properties as fields.
+                // 'measurement' is reserved too so that array items like
+                // { measurement: 'temp', value: 1 } don't write it as a string field.
+                const reservedKeys = new Set(['measurement', 'tags', 'timestamp', 'integers', 'fields']);
                 for (const [key, value] of Object.entries(msg.payload)) {
                     if (!reservedKeys.has(key)) {
                         if (addFieldToPoint(point, key, value, integerFields, measurement)) {
@@ -363,7 +386,27 @@ module.exports = function(RED) {
                 if (ts instanceof Date && !isNaN(ts.getTime())) {
                     point.setTimestamp(ts);
                 } else if (typeof ts === 'number' && isFinite(ts) && ts >= 0) {
-                    point.setTimestamp(new Date(ts));
+                    const date = new Date(ts);
+                    if (isNaN(date.getTime())) {
+                        // Beyond the representable Date range (±8.64e15 ms) — almost
+                        // always a nanosecond timestamp passed where ms are expected.
+                        node.warn(
+                            `Invalid timestamp: ${ts} is outside the representable date range. ` +
+                            `Numeric timestamps are interpreted as milliseconds - if the source ` +
+                            `supplies nanoseconds, convert to milliseconds first. The timestamp ` +
+                            `was ignored; InfluxDB will assign the write time.`
+                        );
+                    } else {
+                        // 0 is deliberately allowed without a warning (explicit epoch).
+                        if (ts !== 0 && (ts < MS_TIMESTAMP_PLAUSIBLE_MIN || ts > Date.now() + ONE_DAY_MS)) {
+                            node.warn(
+                                `Numeric timestamp ${ts} resolves to ${date.toISOString()}. ` +
+                                `Numeric timestamps are interpreted as milliseconds - if the source ` +
+                                `supplies seconds or nanoseconds, convert to milliseconds first.`
+                            );
+                        }
+                        point.setTimestamp(date);
+                    }
                 } else if (typeof ts === 'string' && ts.trim() !== '') {
                     const parsed = new Date(ts);
                     if (!isNaN(parsed.getTime())) {
@@ -385,14 +428,9 @@ module.exports = function(RED) {
             return { lineProtocol: lp };
         }
 
-        // Process incoming messages
+        // Process incoming messages (send/done are always provided on Node-RED >=1.0,
+        // and this package requires >=3.0)
         node.on('input', async function(msg, send, done) {
-            // For Node-RED 0.x compatibility
-            send = send || function(m) { node.send(m); };
-            done = done || function(err) {
-                if (err) { node.error(err, msg); }
-            };
-
             try {
                 const client = node.influxdb.getClient();
 
