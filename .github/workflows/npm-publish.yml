@@ -26,12 +26,16 @@ jobs:
       - name: Check if version changed
         id: check
         run: |
-          if git diff HEAD^ HEAD -- package.json | grep -q '"version"'; then
+          # Compare the actual version values rather than grepping the diff,
+          # which also matches unchanged context lines near the version field.
+          PREV=$(git show HEAD^:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" || echo "")
+          CURR=$(node -p "require('./package.json').version")
+          if [ "$PREV" != "$CURR" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Version has changed, will publish to NPM"
+            echo "Version changed ($PREV -> $CURR), will publish to NPM"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Version unchanged, skipping NPM publish"
+            echo "Version unchanged ($CURR), skipping NPM publish"
           fi
 
   publish-npm:

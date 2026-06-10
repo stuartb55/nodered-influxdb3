@@ -6,7 +6,14 @@
         category: 'config',
         defaults: {
             name: { value: '' },
-            host: { value: '', required: true },
+            host: {
+                value: '',
+                required: true,
+                validate: function(v) {
+                    // Accept http(s) URLs or Node-RED ${ENV_VAR} substitution
+                    return /^https?:\/\/\S+$/.test(v) || /\$\{[^}]+\}/.test(v);
+                }
+            },
             database: { value: '', required: true },
             tlsRejectUnauthorized: { value: true },
             caCertPath: { value: '' }
@@ -130,7 +137,7 @@
         <dt class="optional">database <span class="property-type">string</span></dt>
         <dd>Override the database configured in the node or connection</dd>
         <dt class="optional">timestamp <span class="property-type">Date | number</span></dt>
-        <dd>Timestamp for the data point (if not in payload)</dd>
+        <dd>Timestamp for the data point (if not in payload). Numbers are interpreted as <b>milliseconds</b> since the epoch</dd>
     </dl>
 
     <h3>Outputs</h3>
@@ -145,6 +152,9 @@
     <h4>Line Protocol Format</h4>
     <p>Send a string in line protocol format:</p>
     <pre>msg.payload = "temperature,location=room1 value=21.5";</pre>
+    <p><b>Note:</b> raw line protocol strings are passed through unmodified. When data comes from
+    an untrusted source, prefer the object format below — the node escapes measurement, tag and
+    field values automatically.</p>
     
     <h4>Object Format</h4>
     <p>Send an object with fields and optionally tags:</p>
@@ -161,7 +171,8 @@
 }</pre>
 
     <h4>Simplified Object Format</h4>
-    <p>Send an object where all properties (except 'tags' and 'timestamp') are treated as fields:</p>
+    <p>Send an object where all properties are treated as fields, except the reserved keys
+    <code>measurement</code>, <code>fields</code>, <code>tags</code>, <code>timestamp</code> and <code>integers</code>:</p>
     <pre>{
   "temperature": 21.5,
   "humidity": 65,

@@ -58,4 +58,27 @@ describe('Line protocol string validation', () => {
         const result = validateLineProtocol(longJson);
         expect(result).toContain('...');
     });
+
+    test('valid multi-line line protocol returns null', () => {
+        const input = 'weather,location=a temperature=82\nweather,location=b temperature=79';
+        expect(validateLineProtocol(input)).toBeNull();
+    });
+
+    test('blank lines between points are allowed', () => {
+        const input = 'weather temperature=82\n\nweather temperature=79';
+        expect(validateLineProtocol(input)).toBeNull();
+    });
+
+    test('invalid line in a multi-line string is reported with its line number', () => {
+        const input = 'weather temperature=82\nnot-line-protocol\nweather temperature=79';
+        const result = validateLineProtocol(input);
+        expect(result).toContain('Line 2');
+        expect(result).toContain('does not appear to be valid line protocol');
+        expect(result).toContain('not-line-protocol');
+    });
+
+    test('single-line error message keeps the original wording', () => {
+        const result = validateLineProtocol('justameasurement');
+        expect(result).toContain('The payload string does not appear to be valid line protocol');
+    });
 });

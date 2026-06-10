@@ -26,7 +26,7 @@ module.exports = [
 
     // Jest test files
     {
-        files: ['test/**/*.js', '__tests__/**/*.js'],
+        files: ['__tests__/**/*.js'],
         languageOptions: {
             globals: {
                 ...globals.jest
