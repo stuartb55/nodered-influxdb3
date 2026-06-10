@@ -428,8 +428,6 @@ module.exports = function(RED) {
             return { lineProtocol: lp };
         }
 
-        // Process incoming messages (send/done are always provided on Node-RED >=1.0,
-        // and this package requires >=3.0)
         node.on('input', async function(msg, send, done) {
             try {
                 const client = node.influxdb.getClient();
