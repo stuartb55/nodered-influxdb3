@@ -12,7 +12,7 @@ module.exports = function(RED) {
     //   Point.setTag(name, value)
     //   Point.setTimestamp(date)
     //   Point.toLineProtocol()
-    const { InfluxDBClient, Point } = require('@influxdata/influxdb3-client');
+    const { InfluxDBClient, Point, PartialWriteError } = require('@influxdata/influxdb3-client');
     const fs = require('fs');
     const { validateLineProtocol } = require('./lib/line-protocol');
 
@@ -155,6 +155,10 @@ module.exports = function(RED) {
         this.influxdb = RED.nodes.getNode(config.influxdb);
         this.measurement = config.measurement;
         this.database = config.database;
+        /** @type {boolean} */
+        this.allowPartialWrites = config.allowPartialWrites === true;
+        /** @type {boolean} */
+        this.noSync = config.noSync === true;
 
         const node = this;
         let statusTimeout = null;
@@ -516,8 +520,29 @@ module.exports = function(RED) {
                     );
                 }
 
+                // Both acceptPartial and noSync exist only on the V3 API endpoint,
+                // so opting into either selects it. With neither enabled, no write
+                // options are passed and the client default (V2 endpoint) is used,
+                // preserving previous behaviour.
+                let writeOptions = null;
+                if (node.allowPartialWrites || node.noSync) {
+                    writeOptions = { useV2Api: false };
+                    if (node.noSync) {
+                        writeOptions.noSync = true;
+                    }
+                    if (!node.allowPartialWrites) {
+                        // noSync without partial writes: keep the all-or-nothing
+                        // semantics the V2 endpoint would have provided.
+                        writeOptions.acceptPartial = false;
+                    }
+                }
+
                 // Write to InfluxDB
-                await client.write(lineProtocol, targetDatabase);
+                if (writeOptions) {
+                    await client.write(lineProtocol, targetDatabase, undefined, writeOptions);
+                } else {
+                    await client.write(lineProtocol, targetDatabase);
+                }
 
                 setStatus({ fill: 'green', shape: 'dot', text: 'written' }, 3000);
 
@@ -525,6 +550,33 @@ module.exports = function(RED) {
                 done();
 
             } catch (error) {
+                // The client raises PartialWriteError both when the server accepted
+                // the valid lines (partial write occurred) and when it rejected the
+                // whole batch (acceptPartial=false). Only the former is a partial
+                // success; the server signals it with this specific error text.
+                if (node.allowPartialWrites &&
+                    error instanceof PartialWriteError &&
+                    typeof error.message === 'string' &&
+                    error.message.toLowerCase().includes('partial write')) {
+                    const lineErrors = error.lineErrors || [];
+                    const detail = lineErrors
+                        .map((le) => `line ${le.lineNumber}: ${le.errorMessage}`)
+                        .join('; ');
+                    node.warn(
+                        `Partial write: InfluxDB rejected ${lineErrors.length} line(s), ` +
+                        `the remaining lines were written. ${detail}`
+                    );
+                    msg.partialWriteErrors = lineErrors;
+                    setStatus({
+                        fill: 'yellow',
+                        shape: 'dot',
+                        text: `partial write: ${lineErrors.length} line(s) rejected`
+                    });
+                    send(msg);
+                    done();
+                    return;
+                }
+
                 const shortMsg = error.message
                     ? (error.message.length > 80 ? error.message.substring(0, 80) + '...' : error.message)
                     : 'unknown error';

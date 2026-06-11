@@ -86,7 +86,9 @@
             influxdb: { type: 'influxdb3-config', required: true },
             name: { value: '' },
             measurement: { value: '' },
-            database: { value: '' }
+            database: { value: '' },
+            allowPartialWrites: { value: false },
+            noSync: { value: false }
         },
         inputs: 1,
         outputs: 1,
@@ -117,6 +119,16 @@
         <label for="node-input-database"><i class="fa fa-database"></i> Database</label>
         <input type="text" id="node-input-database" placeholder="Override default database (optional)">
     </div>
+    <div class="form-row">
+        <label for="node-input-allowPartialWrites"><i class="fa fa-tasks"></i> Partial writes</label>
+        <input type="checkbox" id="node-input-allowPartialWrites" style="width:auto;">
+        <span>Allow partial writes (InfluxDB 3 Core/Enterprise only)</span>
+    </div>
+    <div class="form-row">
+        <label for="node-input-noSync"><i class="fa fa-bolt"></i> No sync</label>
+        <input type="checkbox" id="node-input-noSync" style="width:auto;">
+        <span>Don't wait for WAL persistence (InfluxDB 3 Core/Enterprise only)</span>
+    </div>
 </script>
 
 <script type="text/html" data-help-name="influxdb3-write">
@@ -144,6 +156,10 @@
     <dl class="message-properties">
         <dt>payload <span class="property-type">object</span></dt>
         <dd>The original payload is passed through</dd>
+        <dt class="optional">partialWriteErrors <span class="property-type">array</span></dt>
+        <dd>Only set when a partial write occurred (see <b>Partial writes</b> below).
+            An array of <code>{ lineNumber, errorMessage, originalLine }</code> objects
+            describing the lines InfluxDB rejected</dd>
     </dl>
 
     <h3>Details</h3>
@@ -213,7 +229,25 @@
         <dd>The measurement name to use. Can be overridden by <code>msg.measurement</code></dd>
         <dt>Database</dt>
         <dd>Optional database override. If not set, uses the database from the connection config</dd>
+        <dt>Partial writes</dt>
+        <dd>When enabled, InfluxDB accepts the valid lines of a batch even if other lines
+            are rejected (InfluxDB 3 Core/Enterprise only)</dd>
+        <dt>No sync</dt>
+        <dd>When enabled, InfluxDB responds without waiting for WAL persistence — faster
+            writes but no durability confirmation (InfluxDB 3 Core/Enterprise only)</dd>
     </dl>
+
+    <h3>Partial writes</h3>
+    <p>By default a batch write is all-or-nothing: one invalid line causes InfluxDB to
+    reject the entire batch. With <b>Partial writes</b> enabled, the valid lines are
+    written and the rejected lines are reported: the node shows a yellow
+    <i>partial write</i> status, logs a warning with the per-line errors, and forwards
+    the message with the details in <code>msg.partialWriteErrors</code>.</p>
+    <p>Enabling <b>Partial writes</b> or <b>No sync</b> sends the write through the
+    InfluxDB v3 API endpoint, which is only available on InfluxDB 3 Core and
+    Enterprise. On other deployments (Cloud Serverless/Dedicated, Clustered) leave
+    both options disabled — writes there use the v2-compatible endpoint, where these
+    options are not supported.</p>
 
     <h3>Examples</h3>
     <h4>Example 1: Simple temperature reading</h4>
