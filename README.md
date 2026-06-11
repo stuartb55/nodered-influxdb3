@@ -64,6 +64,18 @@ Writes data points to InfluxDB v3.
 - **Name**: Optional node name
 - **Measurement**: Default measurement name (can be overridden by `msg.measurement`)
 - **Database**: Optional database override (uses connection default if not set)
+- **Partial writes**: Accept the valid lines of a batch even if other lines are rejected (InfluxDB 3 Core/Enterprise only)
+- **No sync**: Respond without waiting for WAL persistence — faster writes without durability confirmation (InfluxDB 3 Core/Enterprise only)
+
+#### Partial Writes
+
+By default a batch write is all-or-nothing: one invalid line causes InfluxDB to reject the entire batch. With **Partial writes** enabled, InfluxDB writes the valid lines and reports the rejected ones. The node then:
+
+- shows a yellow `partial write` status instead of an error
+- logs a warning listing each rejected line and the reason
+- forwards the message with the details attached as `msg.partialWriteErrors`, an array of `{ lineNumber, errorMessage, originalLine }` objects
+
+Enabling **Partial writes** or **No sync** routes the write through the InfluxDB v3 API endpoint, which is only available on InfluxDB 3 Core and Enterprise. On other deployments (Cloud Serverless/Dedicated, Clustered) leave both options disabled — writes there use the v2-compatible endpoint, where these options are not supported and would cause writes to fail. When **No sync** is enabled without **Partial writes**, the node keeps the all-or-nothing write semantics.
 
 ## Usage
 

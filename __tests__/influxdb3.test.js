@@ -57,9 +57,18 @@ jest.mock('@influxdata/influxdb3-client', () => {
     }
   }
 
+  class MockPartialWriteError extends Error {
+    constructor(message, lineErrors) {
+      super(message);
+      this.name = 'PartialWriteError';
+      this.lineErrors = lineErrors;
+    }
+  }
+
   return {
     InfluxDBClient: MockInfluxDBClient,
     Point: MockPoint,
+    PartialWriteError: MockPartialWriteError,
     __getLastClientOptions: () => mockLastClientOptions,
     __getLastClientInstance: () => mockLastClientInstance,
     __getLastPoint: () => mockLastPoint
@@ -313,7 +322,7 @@ describe('InfluxDB v3 write node', () => {
 });
 
 // Helper to create a write node for addFieldToPoint / buildLineProtocol tests
-function createWriteNode() {
+function createWriteNode(writeConfig) {
   const { RED, influxModule } = setup();
   const ConfigCtor = RED._types['influxdb3-config'];
   const WriteCtor = RED._types['influxdb3-write'];
@@ -328,7 +337,8 @@ function createWriteNode() {
   const writeNode = new WriteCtor({
     influxdb: configNode,
     measurement: 'test_measurement',
-    database: ''
+    database: '',
+    ...writeConfig
   });
 
   return { RED, influxModule, configNode, writeNode };
@@ -1153,6 +1163,146 @@ describe('write node – client.write failure', () => {
     expect(statusArg.text.endsWith('...')).toBe(true);
     // done still receives the full, untruncated error
     expect(done.mock.calls[0][0].message).toBe(longMessage);
+  });
+});
+
+describe('write node – partial writes and noSync options', () => {
+  test('passes no write options by default (V2 endpoint)', async () => {
+    const { influxModule, writeNode } = createWriteNode();
+    const msg = { measurement: 'sensor', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalledWith(expect.any(String), 'metrics');
+  });
+
+  test('allowPartialWrites selects the V3 endpoint', async () => {
+    const { influxModule, writeNode } = createWriteNode({ allowPartialWrites: true });
+    const msg = { measurement: 'sensor', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalledWith(
+      expect.any(String),
+      'metrics',
+      undefined,
+      { useV2Api: false }
+    );
+    expect(done.mock.calls[0][0]).toBeUndefined();
+  });
+
+  test('noSync alone selects the V3 endpoint but keeps all-or-nothing semantics', async () => {
+    const { influxModule, writeNode } = createWriteNode({ noSync: true });
+    const msg = { measurement: 'sensor', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalledWith(
+      expect.any(String),
+      'metrics',
+      undefined,
+      { useV2Api: false, noSync: true, acceptPartial: false }
+    );
+  });
+
+  test('noSync with allowPartialWrites leaves acceptPartial at its default', async () => {
+    const { influxModule, writeNode } = createWriteNode({
+      allowPartialWrites: true,
+      noSync: true
+    });
+    const msg = { measurement: 'sensor', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    const client = influxModule.__getLastClientInstance();
+    expect(client.write).toHaveBeenCalledWith(
+      expect.any(String),
+      'metrics',
+      undefined,
+      { useV2Api: false, noSync: true }
+    );
+  });
+
+  test('partial write is treated as success with warning, yellow status and lineErrors on msg', async () => {
+    const { influxModule, configNode, writeNode } = createWriteNode({ allowPartialWrites: true });
+    const { PartialWriteError } = influxModule;
+
+    const lineErrors = [
+      { lineNumber: 2, errorMessage: 'invalid field value', originalLine: 'cpu value=oops' }
+    ];
+    const client = configNode.getClient();
+    client.write = jest.fn().mockRejectedValue(
+      new PartialWriteError('partial write of line protocol occurred', lineErrors)
+    );
+
+    const msg = { measurement: 'sensor', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    // Treated as (partial) success: message forwarded, done without error
+    expect(send).toHaveBeenCalledWith(msg);
+    expect(done).toHaveBeenCalled();
+    expect(done.mock.calls[0][0]).toBeUndefined();
+    expect(msg.partialWriteErrors).toEqual(lineErrors);
+    expect(writeNode.warn).toHaveBeenCalledWith(
+      expect.stringContaining('InfluxDB rejected 1 line(s)')
+    );
+    expect(writeNode.warn).toHaveBeenCalledWith(
+      expect.stringContaining('line 2: invalid field value')
+    );
+    expect(writeNode.status).toHaveBeenCalledWith(
+      expect.objectContaining({ fill: 'yellow', text: 'partial write: 1 line(s) rejected' })
+    );
+  });
+
+  test('full batch rejection (acceptPartial=false) is still an error', async () => {
+    const { influxModule, configNode, writeNode } = createWriteNode({ noSync: true });
+    const { PartialWriteError } = influxModule;
+
+    const client = configNode.getClient();
+    client.write = jest.fn().mockRejectedValue(
+      new PartialWriteError('parsing failed for write_lp endpoint', [
+        { lineNumber: 1, errorMessage: 'invalid field value', originalLine: 'cpu value=oops' }
+      ])
+    );
+
+    const msg = { measurement: 'sensor', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(writeNode.status).toHaveBeenCalledWith(
+      expect.objectContaining({ fill: 'red' })
+    );
+  });
+
+  test('PartialWriteError is an ordinary error when partial writes are not enabled', async () => {
+    const { influxModule, configNode, writeNode } = createWriteNode();
+    const { PartialWriteError } = influxModule;
+
+    const client = configNode.getClient();
+    client.write = jest.fn().mockRejectedValue(
+      new PartialWriteError('partial write of line protocol occurred', [])
+    );
+
+    const msg = { measurement: 'sensor', payload: { fields: { value: 1 } } };
+    const send = jest.fn();
+    const done = jest.fn();
+    await writeNode._handlers.input(msg, send, done);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(done).toHaveBeenCalledWith(expect.any(Error));
+    expect(msg.partialWriteErrors).toBeUndefined();
   });
 });
 
