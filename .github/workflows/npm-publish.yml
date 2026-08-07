@@ -1,5 +1,6 @@
 # This workflow will publish the package to NPM when commits are pushed to main
-# It will only publish if the version in package.json has changed
+# It will only publish if the version in package.json is not already on the
+# registry, so a missed/failed publish is picked up by any later push to main.
 
 name: Publish to NPM
 
@@ -12,35 +13,53 @@ jobs:
   check-version:
     runs-on: ubuntu-latest
     outputs:
-      version-changed: ${{ steps.check.outputs.changed }}
+      should-publish: ${{ steps.check.outputs.publish }}
       current-version: ${{ steps.get-version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
         with:
-          fetch-depth: 2
-      
+          node-version: 24
+          package-manager-cache: false
+
       - name: Get current version
         id: get-version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-      
-      - name: Check if version changed
+
+      - name: Check if version is already published to NPM
         id: check
         run: |
-          # Compare the actual version values rather than grepping the diff,
-          # which also matches unchanged context lines near the version field.
-          PREV=$(git show HEAD^:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" || echo "")
-          CURR=$(node -p "require('./package.json').version")
-          if [ "$PREV" != "$CURR" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Version changed ($PREV -> $CURR), will publish to NPM"
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+
+          # Fetch the published version list. A missing package (E404) means
+          # nothing has been published yet; any other failure (network, registry
+          # outage, auth) must fail the job rather than look like "not published".
+          if VERSIONS=$(npm view "$NAME" versions --json 2>npm-view-err.log); then
+            :
+          elif grep -q 'E404' npm-view-err.log; then
+            echo "Package $NAME is not on the registry yet"
+            VERSIONS='[]'
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Version unchanged ($CURR), skipping NPM publish"
+            cat npm-view-err.log >&2
+            echo "Could not query the NPM registry for $NAME"
+            exit 1
+          fi
+
+          # `npm view ... versions --json` returns a bare string when only one
+          # version exists, so normalise to an array before checking membership.
+          if node -e 'const v = JSON.parse(process.argv[1]); process.exit([].concat(v).includes(process.argv[2]) ? 0 : 1)' "$VERSIONS" "$VERSION"; then
+            echo "publish=false" >> $GITHUB_OUTPUT
+            echo "$NAME@$VERSION is already published, skipping NPM publish"
+          else
+            echo "publish=true" >> $GITHUB_OUTPUT
+            echo "$NAME@$VERSION is not published, will publish to NPM"
           fi
 
   publish-npm:
     needs: check-version
-    if: needs.check-version.outputs.version-changed == 'true'
+    if: needs.check-version.outputs.should-publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for OIDC
@@ -74,7 +93,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           VERSION=$(node -p "require('./package.json').version")
-          git tag -a "v$VERSION" -m "Release v$VERSION"
-          git push origin "v$VERSION"
+          # Publishing is now retried on every push until the version lands on
+          # the registry, so tolerate a tag left behind by an earlier attempt.
+          if git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists on origin, skipping"
+          else
+            git tag -a "v$VERSION" -m "Release v$VERSION"
+            git push origin "v$VERSION"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
